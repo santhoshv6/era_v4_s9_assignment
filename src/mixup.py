@@ -7,6 +7,12 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+# Export list for clean imports
+__all__ = [
+    'mixup_data', 'cutmix_data', 'mixup_criterion', 
+    'MixupCutmixCollator', 'rand_bbox'
+]
+
 
 def mixup_data(x, y, alpha=1.0):
     """

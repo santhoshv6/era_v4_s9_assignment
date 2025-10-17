@@ -8,7 +8,6 @@ import math
 import os
 import random
 import time
-from dataclasses import dataclass
 from typing import Dict, List, Optional, TextIO, Tuple, Union
 import logging
 
@@ -17,6 +16,13 @@ import torch.distributed as dist
 import torch.nn as nn
 import numpy as np
 from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
+
+# Export list for clean imports
+__all__ = [
+    'TrainingConfig', 'AverageMeter', 'accuracy', 'save_checkpoint', 
+    'load_checkpoint', 'get_onecycle_scheduler', 'WarmupCosineScheduler', 
+    'setup_logging', 'seed_everything', 'get_device'
+]
 
 
 def seed_everything(seed: int = 42):
@@ -116,6 +122,53 @@ def get_device() -> str:
         return 'mps'
     else:
         return 'cpu'
+
+
+class TrainingConfig:
+    """Training configuration with anti-overfitting techniques for 81% ImageNet accuracy."""
+    
+    def __init__(self):
+        # Training parameters
+        self.epochs = 30
+        self.batch_size = 64        # Increased for better convergence
+        self.lr = 0.1              # Higher LR for from-scratch training
+        self.momentum = 0.9
+        
+        # Anti-overfitting techniques - Critical for 81% accuracy
+        self.weight_decay = 3e-4    # L2 regularization
+        self.label_smoothing = 0.15 # Label smoothing
+        self.dropout = 0.0          # ResNet50 typically doesn't use dropout
+        
+        # Advanced techniques for 81% target
+        self.mixup_alpha = 0.2      # Mixup augmentation
+        self.cutmix_alpha = 1.0     # CutMix augmentation  
+        self.mixup_prob = 0.8       # Probability of using mixup/cutmix
+        
+        # Learning rate scheduling
+        self.scheduler_type = 'cosine'  # cosine, onecycle, step
+        self.warmup_epochs = 5          # Warmup for stability
+        
+        # System parameters
+        self.num_workers = 4
+        self.num_classes = None     # Auto-detected
+        self.output_dir = './outputs'
+    
+    def update_classes(self, num_classes: int):
+        """Update number of classes based on dataset detection."""
+        self.num_classes = num_classes
+        print(f"✅ Configuration updated for {num_classes} classes")
+    
+    def get_anti_overfitting_summary(self) -> str:
+        """Get summary of anti-overfitting techniques."""
+        return f"""
+🛡️ Anti-Overfitting Strategies:
+  • Weight Decay: {self.weight_decay} (L2 regularization)
+  • Label Smoothing: {self.label_smoothing}
+  • Mixup Alpha: {self.mixup_alpha}
+  • CutMix Alpha: {self.cutmix_alpha}
+  • Warmup Epochs: {self.warmup_epochs}
+  • Target: Prevent overfitting for 81% ImageNet accuracy
+        """
 
 
 def setup_logging(log_dir: str, log_level: int = logging.INFO) -> logging.Logger:

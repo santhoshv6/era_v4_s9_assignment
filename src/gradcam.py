@@ -10,6 +10,11 @@ import cv2
 from typing import List, Tuple, Optional
 import matplotlib.pyplot as plt
 
+# Export list for clean imports
+__all__ = [
+    'GradCAM', 'get_gradcam_target_layer', 'visualize_predictions_with_gradcam'
+]
+
 
 class GradCAM:
     """

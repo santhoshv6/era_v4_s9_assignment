@@ -4,27 +4,38 @@ import torchvision.models as models
 from typing import Optional, Dict, Any
 import math
 
+# Export list for clean imports
+__all__ = ['get_model', 'count_parameters', 'get_model_info']
+
 
 def get_model(num_classes: int = 1000,
               model_name: str = 'resnet50',
-              dropout: float = 0.0) -> nn.Module:
-    """Create a ResNet50 from scratch (no pretrained weights) for ImageNet training.
+              dropout: float = 0.0,
+              device: Optional[str] = None) -> nn.Module:
+    """Create a ResNet50 from scratch (no pretrained weights) with dynamic class support.
     
-    This is specifically designed for training from scratch to achieve 81% top-1 accuracy.
-    Uses proper weight initialization and architectural choices for from-scratch training.
+    This function automatically handles different dataset sizes:
+    - Kaggle sample: ~20-100 classes  
+    - Full ImageNet: 1000 classes
+    - Custom datasets: any number of classes
+    
+    Designed for training from scratch to achieve 81% top-1 accuracy on ImageNet.
 
     Args:
-        num_classes: Number of output classes (1000 for ImageNet)
+        num_classes: Number of output classes (auto-detected from dataset)
         model_name: Model architecture (only 'resnet50' supported)
         dropout: Dropout rate before final classifier (usually 0.0 for ResNet50)
+        device: Device to move model to ('cuda', 'cpu', or None for auto-detect)
 
     Returns:
-        PyTorch model ready for from-scratch training
+        PyTorch model ready for from-scratch training with proper device placement
     """
     if model_name != 'resnet50':
         raise ValueError(f"Only ResNet50 supported, got {model_name}")
 
-    # Create ResNet50 with no pretrained weights
+    print(f"🏗️ Creating ResNet50 from scratch for {num_classes} classes...")
+    
+    # Create ResNet50 with no pretrained weights - dynamic num_classes
     model = models.resnet50(weights=None, num_classes=num_classes)
     
     # Apply proper initialization for from-scratch training
@@ -44,6 +55,20 @@ def get_model(num_classes: int = 1000,
                 nn.init.normal_(linear_layer.weight, 0, 0.01)
                 if linear_layer.bias is not None:
                     nn.init.constant_(linear_layer.bias, 0)
+    
+    # Auto-detect device if not specified
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # Move model to device
+    model = model.to(device)
+    
+    # Log model info
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"✅ Model: ResNet50")
+    print(f"📊 Parameters: {total_params:,}")  
+    print(f"🎯 Classes: {num_classes}")
+    print(f"💾 Device: {device}")
     
     return model
 
