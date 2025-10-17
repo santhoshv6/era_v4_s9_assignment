@@ -1,0 +1,61 @@
+# Large files and datasets
+*.pth
+*.pt
+*.h5
+*.hdf5
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Output directories
+outputs/
+demo_output/
+checkpoints/
+wandb/
+runs/
+
+# Dataset directories
+imagenet/
+imagenet_real_sample/
+data/
+datasets/
+
+# Large images and videos
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.mp4
+*.avi
+*.mov
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.out
