@@ -13,11 +13,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch_lr_finder import LRFinder  
+from tqdm import tqdm  
 
 # Export list for clean imports
 __all__ = [
     'parse_args', 'main', 'train_epoch', 'validate'
 ]
+
 from torchvision import datasets
 from torch.cuda.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -88,6 +91,10 @@ def parse_args():
                        help='Path to checkpoint to resume from')
     parser.add_argument('--start-epoch', type=int, default=0,
                        help='Manual epoch number (useful on restarts)')
+
+    # New argument: LR Finder
+    parser.add_argument('--lr-finder', action='store_true',
+                        help='Run Learning Rate Finder before training')
     
     # Misc
     parser.add_argument('--seed', type=int, default=42,
@@ -142,14 +149,29 @@ def main():
         transform=val_transforms
     )
     
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.workers,
-        pin_memory=True,
-        drop_last=True
-    )
+    # If LR Finder flag use a small subset for fast LR search
+    if args.lr_finder:
+        subset_size = 2000
+        subset_indices = list(range(min(subset_size, len(train_dataset))))
+        train_subset = torch.utils.data.Subset(train_dataset, subset_indices)
+        train_loader = DataLoader(
+            train_subset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=args.workers,
+            pin_memory=True,
+            drop_last=True
+        )
+    else:
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=args.workers,
+            pin_memory=True,
+            drop_last=True
+        )
+    
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
@@ -166,15 +188,17 @@ def main():
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     
     # Define optimizer
+    # Use very small lr initially if LR Finder flag set
+    init_lr = 1e-7 if args.lr_finder else args.lr
     optimizer = optim.SGD(
         model.parameters(),
-        lr=args.lr,
+        lr=init_lr,
         momentum=args.momentum,
         weight_decay=args.weight_decay,
         nesterov=True
     )
     
-    # Define scheduler
+    # Define scheduler (for main training only)
     scheduler = WarmupCosineScheduler(
         optimizer=optimizer,
         warmup_epochs=args.warmup_epochs,
@@ -186,11 +210,11 @@ def main():
     # AMP scaler
     scaler = GradScaler(enabled=args.amp)
     
-    # Resume from checkpoint if specified
+    # Resume from checkpoint if specified (only for normal training)
     start_epoch = args.start_epoch
     best_acc1 = 0.0
     
-    if args.resume:
+    if args.resume and not args.lr_finder:
         if os.path.isfile(args.resume):
             logger.info(f"Loading checkpoint '{args.resume}'")
             checkpoint = load_checkpoint(args.resume, model, optimizer, scheduler)
@@ -202,6 +226,18 @@ def main():
         else:
             logger.warning(f"No checkpoint found at '{args.resume}'")
     
+    # Run LR Finder if flagged
+    if args.lr_finder:
+        logger.info("Starting LR Finder run...")
+        lr_finder = LRFinder(model, optimizer, criterion, device=device)
+        lr_finder.range_test(train_loader, end_lr=10, num_iter=100)
+        lr_finder.plot(log_lr=True, skip_start=10, skip_end=5)
+        plot_path = os.path.join(args.output_dir, "lr_finder_plot.png")
+        lr_finder.plot(log_lr=True, skip_start=10, skip_end=5).savefig(plot_path)
+        logger.info(f"LR Finder completed. Plot saved at {plot_path}.")
+        lr_finder.reset()
+        return
+
     # Evaluate only
     if args.evaluate:
         logger.info("Evaluating model...")
@@ -282,7 +318,10 @@ def train_epoch(loader, model, criterion, optimizer, scaler, device, epoch, args
     epoch_start = time.time()
     end = time.time()
     
-    for i, (images, target) in enumerate(loader):
+    # Use tqdm progress bar over the loader
+    loop = tqdm(enumerate(loader), total=len(loader), desc=f'Epoch {epoch} Training')
+    
+    for i, (images, target) in loop:
         # Measure data loading time
         data_time.update(time.time() - end)
         
@@ -319,6 +358,9 @@ def train_epoch(loader, model, criterion, optimizer, scaler, device, epoch, args
         batch_time.update(time.time() - end)
         end = time.time()
         
+        # Update tqdm postfix to show current losses and accuracies
+        loop.set_postfix(loss=losses.avg, acc1=top1.avg, acc5=top5.avg)
+        
         # Log progress
         if i % args.log_interval == 0:
             logger.info(
@@ -353,7 +395,8 @@ def validate(loader, model, criterion, device, args, logger):
     val_start = time.time()
     with torch.no_grad():
         end = time.time()
-        for i, (images, target) in enumerate(loader):
+        loop = tqdm(enumerate(loader), total=len(loader), desc='Validation')
+        for i, (images, target) in loop:
             images = images.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
             
@@ -371,6 +414,9 @@ def validate(loader, model, criterion, device, args, logger):
             # Measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
+            
+            # Update tqdm postfix with validation stats
+            loop.set_postfix(loss=losses.avg, acc1=top1.avg, acc5=top5.avg)
     
     val_time = time.time() - val_start
     logger.info(f'Validation: Loss {losses.avg:.4f} Acc@1 {top1.avg:.2f} Acc@5 {top5.avg:.2f} Time {val_time:.1f}s')
