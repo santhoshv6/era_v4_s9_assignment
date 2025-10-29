@@ -40,6 +40,40 @@ def seed_everything(seed: int = 42):
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = True
 
+class WarmupCosineScheduler:
+    """Learning rate scheduler with warmup and cosine annealing."""
+    
+    def __init__(self, optimizer, warmup_epochs: int, total_epochs: int, 
+                 base_lr: float, warmup_lr: float = 0.0):
+        self.optimizer = optimizer
+        self.warmup_epochs = warmup_epochs
+        self.total_epochs = total_epochs
+        self.base_lr = base_lr
+        self.warmup_lr = warmup_lr
+        self.current_epoch = 0
+    
+    def step(self, epoch: Optional[int] = None):
+        if epoch is not None:
+            self.current_epoch = epoch
+        else:
+            self.current_epoch += 1
+        
+        if self.current_epoch < self.warmup_epochs:
+            # Linear warmup
+            lr = self.warmup_lr + (self.base_lr - self.warmup_lr) * self.current_epoch / self.warmup_epochs
+        else:
+            # Cosine annealing
+            progress = (self.current_epoch - self.warmup_epochs) / (self.total_epochs - self.warmup_epochs)
+            lr = self.base_lr * (1 + math.cos(math.pi * progress)) / 2
+        
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+        
+        return lr
+    
+    def get_last_lr(self):
+        return [group['lr'] for group in self.optimizer.param_groups]
+
 
 class AverageMeter:
     """Computes and stores the average and current value."""
@@ -97,6 +131,8 @@ def load_checkpoint(checkpoint_path: str, model: nn.Module, optimizer=None, sche
     """Load model checkpoint."""
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"No checkpoint found at {checkpoint_path}")
+    
+    torch.serialization.add_safe_globals({'utils.WarmupCosineScheduler': WarmupCosineScheduler})
     
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     
@@ -234,42 +270,6 @@ def format_time(seconds: float) -> str:
     minutes = int((seconds % 3600) // 60)
     seconds = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
-
-class WarmupCosineScheduler:
-    """Learning rate scheduler with warmup and cosine annealing."""
-    
-    def __init__(self, optimizer, warmup_epochs: int, total_epochs: int, 
-                 base_lr: float, warmup_lr: float = 0.0):
-        self.optimizer = optimizer
-        self.warmup_epochs = warmup_epochs
-        self.total_epochs = total_epochs
-        self.base_lr = base_lr
-        self.warmup_lr = warmup_lr
-        self.current_epoch = 0
-    
-    def step(self, epoch: Optional[int] = None):
-        if epoch is not None:
-            self.current_epoch = epoch
-        else:
-            self.current_epoch += 1
-        
-        if self.current_epoch < self.warmup_epochs:
-            # Linear warmup
-            lr = self.warmup_lr + (self.base_lr - self.warmup_lr) * self.current_epoch / self.warmup_epochs
-        else:
-            # Cosine annealing
-            progress = (self.current_epoch - self.warmup_epochs) / (self.total_epochs - self.warmup_epochs)
-            lr = self.base_lr * (1 + math.cos(math.pi * progress)) / 2
-        
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = lr
-        
-        return lr
-    
-    def get_last_lr(self):
-        return [group['lr'] for group in self.optimizer.param_groups]
-
 
 # Distributed training utilities
 def is_dist_avail_and_initialized():
