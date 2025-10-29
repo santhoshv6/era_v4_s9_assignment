@@ -217,7 +217,7 @@ def main():
     if args.resume and not args.lr_finder:
         if os.path.isfile(args.resume):
             logger.info(f"Loading checkpoint '{args.resume}'")
-            torch.serialization.add_safe_globals({'WarmupCosineScheduler': WarmupCosineScheduler})
+            torch.serialization.add_safe_globals({'utils.WarmupCosineScheduler': WarmupCosineScheduler})
             checkpoint = load_checkpoint(args.resume, model, optimizer, scheduler)
             start_epoch = checkpoint.get('epoch', 0) + 1
             best_acc1 = checkpoint.get('best_acc1', 0.0)
