@@ -20,10 +20,69 @@ Train ResNet50 from scratch on full ImageNet dataset to achieve 81% top-1 accura
 - **Optimization**: Mixed Precision + Gradient Clipping
 
 ### 💰 **Budget Analysis**
-- **Instance**: g4dn.2xlarge (T4 GPU, 32GB RAM)
+- **Recommended Instance**: g4dn.2xlarge (T4 GPU, 32GB RAM)
 - **Spot Price**: ~$0.264/hour
 - **Training Time**: 96 hours
 - **Total Cost**: $25.34 + storage (~$26 total)
+
+### 🖥️ **INSTANCE COMPARISON: g4dn.2xlarge vs g5.2xlarge**
+
+| **Specification** | **g4dn.2xlarge** | **g5.2xlarge** |
+|-------------------|-------------------|----------------|
+| **GPU** | NVIDIA T4 (16GB) | NVIDIA A10G (24GB) |
+| **GPU Memory** | 16GB GDDR6 | 24GB GDDR6 |
+| **vCPUs** | 8 | 8 |
+| **RAM** | 32GB | 32GB |
+| **Network** | Up to 25 Gbps | Up to 10 Gbps |
+| **Storage** | NVMe SSD | NVMe SSD |
+
+#### **💵 COST ANALYSIS**
+
+| **Instance** | **Spot Price/hr** | **96hr Total** | **Performance** | **Time to 81%** |
+|--------------|-------------------|----------------|-----------------|------------------|
+| **g4dn.2xlarge** | ~$0.264 | **$25.34** | 100% baseline | 96 hours |
+| **g5.2xlarge** | ~$0.544 | **$52.22** | ~140% faster | ~69 hours |
+
+#### **🎯 RECOMMENDATION: g4dn.2xlarge**
+
+**Choose g4dn.2xlarge for the following reasons:**
+
+✅ **Budget Compliance**: $25.34 total cost vs $52.22 for g5  
+✅ **Proven Performance**: T4 handles ResNet50 + batch size 256 comfortably  
+✅ **Sufficient Memory**: 16GB GPU memory is adequate for ImageNet training  
+✅ **Spot Availability**: g4dn instances have better spot availability  
+✅ **Cost Efficiency**: 2x cheaper with only ~30% longer training time  
+
+#### **⚠️ When to Consider g5.2xlarge:**
+
+- Budget allows $50+ spend
+- Need faster results (69 hours vs 96 hours)
+- Planning multiple training runs
+- Experimenting with larger batch sizes (512+)
+
+#### **🧮 DETAILED COST BREAKDOWN (g4dn.2xlarge)**
+
+```
+Compute Cost:
+- 96 hours × $0.264/hour = $25.34
+
+Storage Cost:
+- 200GB EBS gp3: ~$2/month (prorated ~$0.50 for 4 days)
+- 150GB ImageNet: Already included in EBS
+
+Total Estimated Cost: $25.84
+Safety Buffer: $4.16 (for price fluctuations)
+**TOTAL BUDGET: $30**
+```
+
+#### **📊 PERFORMANCE EXPECTATIONS**
+
+**g4dn.2xlarge Performance:**
+- Batch size: 256 (optimal for T4)
+- Memory usage: ~14GB/16GB (safe margin)
+- Training speed: ~8-10 epochs/day
+- Total time: 96 hours for 120 epochs
+- Expected accuracy: 81%+ with EMA+SWA
 
 ---
 

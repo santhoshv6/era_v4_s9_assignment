@@ -3,6 +3,7 @@ torchvision>=0.15.0
 numpy>=1.21.0
 tqdm>=4.64.0
 Pillow>=9.0.0
+torch-lr-finder>=0.2.1
 
 # Hugging Face for dataset download
 datasets>=2.14.0
