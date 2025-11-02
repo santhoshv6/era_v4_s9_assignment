@@ -5,6 +5,7 @@ This script implements all the necessary techniques for successful from-scratch 
 
 import argparse
 import os
+from sched import scheduler
 import time
 import warnings
 from contextlib import suppress
@@ -217,16 +218,38 @@ def main():
     if args.resume and not args.lr_finder:
         if os.path.isfile(args.resume):
             logger.info(f"Loading checkpoint '{args.resume}'")
-            torch.serialization.add_safe_globals({'utils.WarmupCosineScheduler': WarmupCosineScheduler})
-            checkpoint = load_checkpoint(args.resume, model, optimizer, scheduler)
+            checkpoint = torch.load(args.resume, map_location='cpu')
+            model.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
             start_epoch = checkpoint.get('epoch', 0) + 1
             best_acc1 = checkpoint.get('best_acc1', 0.0)
-            if 'scaler' in checkpoint:
-                scaler.load_state_dict(checkpoint['scaler'])
-            logger.info(f"Loaded checkpoint '{args.resume}' (epoch {start_epoch-1})")
+            logger.info(f"Loaded checkpoint '{args.resume}' (epoch {start_epoch-1}) – Scheduler and Scaler restored")
         else:
             logger.warning(f"No checkpoint found at '{args.resume}'")
-    
+
+    # Re-create scheduler and scaler after resume block
+    scheduler = WarmupCosineScheduler(
+        optimizer=optimizer,
+        warmup_epochs=args.warmup_epochs,
+        total_epochs=args.epochs,
+        base_lr=args.lr,
+        warmup_lr=0.0
+    )
+    scaler = GradScaler(enabled=args.amp)
+
+    # Restore state if present in checkpoint
+    if args.resume and not args.lr_finder and os.path.isfile(args.resume):
+        if 'scheduler' in checkpoint and hasattr(scheduler, 'load_state_dict'):
+            scheduler.load_state_dict(checkpoint['scheduler'])
+        if 'scaler' in checkpoint:
+            scaler.load_state_dict(checkpoint['scaler'])
+
+    # (Optional) Fast-forward scheduler for older checkpoints that lack 'scheduler' state
+    for e in range(start_epoch):
+        scheduler.step()
+
+
+
     # Run LR Finder if flagged
     if args.lr_finder:
         logger.info("Starting LR Finder run...")
@@ -283,12 +306,16 @@ def main():
                 'epoch': epoch,
                 'state_dict': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler,
+                #'scheduler': scheduler.state_dict(),
                 'scaler': scaler.state_dict(),
                 'best_acc1': best_acc1,
                 'args': args,
             }
             
+            # Only save scheduler state if possible
+            if hasattr(scheduler, 'state_dict'):
+                checkpoint_state['scheduler'] = scheduler.state_dict()
+
             # Save checkpoint
             if (epoch + 1) % args.save_freq == 0 or is_best:
                 save_checkpoint(

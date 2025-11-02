@@ -73,6 +73,26 @@ class WarmupCosineScheduler:
     
     def get_last_lr(self):
         return [group['lr'] for group in self.optimizer.param_groups]
+    
+    def state_dict(self):
+    """Return scheduler state for checkpointing."""
+    return {
+        'current_epoch': self.current_epoch,
+        'warmup_epochs': self.warmup_epochs,
+        'total_epochs': self.total_epochs,
+        'base_lr': self.base_lr,
+        'warmup_lr': self.warmup_lr
+    }
+
+    def load_state_dict(self, state_dict):
+        """Load scheduler state from checkpoint."""
+        self.current_epoch = state_dict.get('current_epoch', 0)
+        self.warmup_epochs = state_dict.get('warmup_epochs', self.warmup_epochs)
+        self.total_epochs = state_dict.get('total_epochs', self.total_epochs)
+        self.base_lr = state_dict.get('base_lr', self.base_lr)
+        self.warmup_lr = state_dict.get('warmup_lr', self.warmup_lr)
+
+
 
 
 class AverageMeter:
@@ -132,10 +152,8 @@ def load_checkpoint(checkpoint_path: str, model: nn.Module, optimizer=None, sche
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"No checkpoint found at {checkpoint_path}")
     
-    torch.serialization.add_safe_globals({'utils.WarmupCosineScheduler': WarmupCosineScheduler})
-    
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
-    
+        
     # Load model state
     model.load_state_dict(checkpoint['state_dict'])
     
