@@ -105,41 +105,191 @@ df -h       # Check available storage
 ```bash
 # Update system packages
 sudo apt update -y
-sudo apt upgrade -y
+sudo apt upgrade -y# First, let's clean up and uninstall conda
+cd ~
+
+# Deactivate any conda environment
+conda deactivate
+
+# Remove conda from PATH (edit .bashrc)
+sed -i '/conda/d' ~/.bashrc
+sed -i '/miniconda/d' ~/.bashrc
+
+# Remove conda directory (this completely uninstalls conda)
+rm -rf ~/miniconda3
+
+# Reload shell configuration
+source ~/.bashrc
+
+# Verify conda is removed
+which conda  # Should return nothing
+
+# Update package lists and install python3-venv if needed
+sudo apt update
+sudo apt install python3-venv python3-pip -y
+
+# Verify Python version
+python3 --version
+
+# Create virtual environment with venv
+python3 -m venv pytorch_env
+
+# Activate the environment
+source pytorch_env/bin/activate
+
+# Verify activation (should show pytorch_env in prompt)
+which python
+python --version
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install PyTorch with CUDA support
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Verify PyTorch installation
+python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}')"
+
+# Install remaining packages
+pip install datasets huggingface_hub tqdm pillow numpy scikit-learn tensorboard torch-lr-finder
+
+# Final verification
+python -c "from torch_lr_finder import LRFinder; print('✅ All packages installed successfully')"# First, let's clean up and uninstall conda
+cd ~
+
+# Deactivate any conda environment
+conda deactivate
+
+# Remove conda from PATH (edit .bashrc)
+sed -i '/conda/d' ~/.bashrc
+sed -i '/miniconda/d' ~/.bashrc
+
+# Remove conda directory (this completely uninstalls conda)
+rm -rf ~/miniconda3
+
+# Reload shell configuration
+source ~/.bashrc
+
+# Verify conda is removed
+which conda  # Should return nothing
+
+# Update package lists and install python3-venv if needed
+sudo apt update
+sudo apt install python3-venv python3-pip -y
+
+# Verify Python version
+python3 --version
+
+# Create virtual environment with venv
+python3 -m venv pytorch_env
+
+# Activate the environment
+source pytorch_env/bin/activate
+
+# Verify activation (should show pytorch_env in prompt)
+which python
+python --version
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install PyTorch with CUDA support
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Verify PyTorch installation
+python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}')"
+
+# Install remaining packages
+pip install datasets huggingface_hub tqdm pillow numpy scikit-learn tensorboard torch-lr-finder
+
+# Final verification
+python -c "from torch_lr_finder import LRFinder; print('✅ All packages installed successfully')"
 
 # Install essential packages
 sudo apt install -y build-essential git wget curl htop nvtop tree unzip python3-pip
+
+# Install Python development tools
+sudo apt install python3 python3-pip python3-venv python3-dev -y
 ```
 
-#### ✅ **Step 1.3: Install Miniconda**
+#### ✅ **Step 1.3: Verify Python Installation**
 ```bash
-# Download and install Miniconda
-cd /tmp
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh -b -p $HOME/miniconda3
+# Verify Python installation
+python3 --version
+pip3 --version
 
-# Add to PATH and initialize
-echo 'export PATH="$HOME/miniconda3/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-conda init bash
+# Create aliases for convenience (optional)
+echo "alias python=python3" >> ~/.bashrc
+echo "alias pip=pip3" >> ~/.bashrc
 
-# Restart shell or source again
+# Reload shell configuration
 source ~/.bashrc
 ```
 
-#### ✅ **Step 1.4: Create Python Environment**
+#### ✅ **Step 1.4: Create Python Virtual Environment**
 ```bash
-# Create PyTorch environment
-conda create -n pytorch_env python=3.9 -y
-conda activate pytorch_env
+# Create Python virtual environment
+python3 -m venv pytorch_env
 
-# Install PyTorch with CUDA
-conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia -y
+# Activate the environment
+source pytorch_env/bin/activate
 
-# Install additional packages
-pip install datasets huggingface_hub tqdm pillow numpy scikit-learn tensorboard
+# Verify activation (prompt should show (pytorch_env))
+which python
+python --version
 
-# Verify installation
+# Upgrade pip to latest version
+pip install --upgrade pip
+
+# CRITICAL: Install PyTorch with CUDA support first
+# Check CUDA version available on your instance
+nvidia-smi  # Note the CUDA version (usually 11.8 or 12.1)
+
+# For CUDA 11.8 (most common on g4dn instances):
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# For CUDA 12.1 (if your instance has newer CUDA):
+# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Verify PyTorch installation BEFORE installing other packages
+python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'CUDA devices: {torch.cuda.device_count()}')"
+
+# If the above fails, try CPU version temporarily for debugging:
+# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Only proceed if PyTorch CUDA test passes
+echo "✅ PyTorch installation verified - proceeding with remaining packages..."
+
+# Install remaining packages
+pip install datasets huggingface_hub tqdm pillow numpy scikit-learn tensorboard torch-lr-finder
+
+# Final verification
+python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
+```
+
+#### ⚠️ **TROUBLESHOOTING PyTorch Installation**
+```bash
+# If PyTorch installation fails or CUDA is not available:
+
+# Option 1: Recreate virtual environment
+deactivate
+rm -rf pytorch_env
+python3 -m venv pytorch_env
+source pytorch_env/bin/activate
+pip install --upgrade pip
+
+# Option 2: Try different CUDA version
+pip uninstall torch torchvision torchaudio -y
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Option 3: For g5 instances with newer CUDA
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Option 4: Check available CUDA versions and use appropriate index
+nvidia-smi
+# Then use appropriate index URL from: https://pytorch.org/get-started/locally/
+
+# Verify after each attempt
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
 ```
 
@@ -196,8 +346,8 @@ git clone https://github.com/santhoshv6/era_v4_s9_assignment.git .
 ls -la
 # Should show: train.py, src/, requirements.txt, download_imagenet_hf.py, EXECUTION_DOC.md, etc.
 
-# Install Python dependencies
-conda activate pytorch_env
+# Activate virtual environment and install Python dependencies
+source pytorch_env/bin/activate
 pip install -r requirements.txt
 
 # Verify installation
@@ -326,8 +476,8 @@ else
     echo "❌ Insufficient disk space: $(df -h /mnt/nvme_data | tail -1 | awk '{print $4}') available"
 fi
 
-# 3. Check conda environment
-conda activate pytorch_env && echo "✅ Conda environment activated" || echo "❌ Conda environment issue"
+# 3. Check virtual environment
+source pytorch_env/bin/activate && echo "✅ Virtual environment activated" || echo "❌ Virtual environment issue"
 
 # 4. Check git repository status
 cd /mnt/nvme_data/imagenet_training
@@ -401,8 +551,8 @@ tmux attach-session -t training
 # Navigate to project directory
 cd /mnt/nvme_data/imagenet_training
 
-# Activate conda environment
-conda activate pytorch_env
+# Activate virtual environment
+source pytorch_env/bin/activate
 
 # Verify everything is ready
 python -c "
@@ -1079,8 +1229,8 @@ nvidia-smi
 # 3. Check disk space
 df -h
 
-# 4. Verify conda environment
-conda activate pytorch_env
+# 4. Verify virtual environment
+source pytorch_env/bin/activate
 python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 
 # 5. Setup fresh tmux sessions for resumed training
@@ -1159,7 +1309,7 @@ restart_training() {
     
     # Navigate to project directory and activate environment
     tmux send-keys -t training "cd /mnt/nvme_data/imagenet_training" Enter
-    tmux send-keys -t training "conda activate pytorch_env" Enter
+    tmux send-keys -t training "source pytorch_env/bin/activate" Enter
     
     # Check for existing checkpoint and resume
     if [ -f "./outputs/best_model.pth" ]; then
