@@ -112,17 +112,40 @@ tmux -V
 
 ### **PHASE 2: PROJECT SETUP & DATA PREPARATION**
 
-#### ✅ **Step 2.1: Setup Project Directory**
+#### ✅ **Step 2.1: Setup Project Directory & Clone Repository**
 ```bash
 # Create project directory
 mkdir -p /mnt/nvme_data/imagenet_training
 cd /mnt/nvme_data/imagenet_training
 
-# Create subdirectories
-mkdir -p outputs logs checkpoints
+# Install git if not already available
+sudo apt install git -y
 
-# Upload your training code here (using scp or git)
-# You should have: train.py, src/, requirements.txt, download_imagenet_hf.py
+# Clone the training repository
+git clone https://github.com/santhoshv6/era_v4_s9_assignment.git .
+
+# Alternative: If above fails, try with specific branch
+# git clone -b master https://github.com/santhoshv6/era_v4_s9_assignment.git .
+
+# If git clone fails entirely, you can download as zip:
+# wget https://github.com/santhoshv6/era_v4_s9_assignment/archive/refs/heads/master.zip
+# unzip master.zip
+# mv era_v4_s9_assignment-master/* .
+# rm -rf era_v4_s9_assignment-master/ master.zip
+
+# Verify all files are present
+ls -la
+# Should show: train.py, src/, requirements.txt, download_imagenet_hf.py, EXECUTION_DOC.md, etc.
+
+# Install Python dependencies
+conda activate pytorch_env
+pip install -r requirements.txt
+
+# Verify installation
+pip list | grep -E "(torch|datasets|huggingface)"
+
+# Create additional subdirectories for training
+mkdir -p outputs logs checkpoints
 ```
 
 #### ✅ **Step 2.2: Login to Hugging Face**
@@ -133,6 +156,53 @@ pip install huggingface_hub[cli]
 # Login to Hugging Face (you'll need your token)
 huggingface-cli login
 # Enter your HF token when prompted
+```
+
+#### ✅ **Step 2.2b: Verify Repository Setup**
+```bash
+# Verify all critical files are present
+cd /mnt/nvme_data/imagenet_training
+
+echo "🔍 Verifying repository files..."
+echo "=================================="
+
+# Check main training files
+[ -f "train.py" ] && echo "✅ train.py found" || echo "❌ train.py missing"
+[ -f "download_imagenet_hf.py" ] && echo "✅ download_imagenet_hf.py found" || echo "❌ download_imagenet_hf.py missing"
+[ -f "requirements.txt" ] && echo "✅ requirements.txt found" || echo "❌ requirements.txt missing"
+[ -f "EXECUTION_DOC.md" ] && echo "✅ EXECUTION_DOC.md found" || echo "❌ EXECUTION_DOC.md missing"
+
+# Check src modules
+[ -d "src" ] && echo "✅ src/ directory found" || echo "❌ src/ directory missing"
+[ -f "src/model.py" ] && echo "✅ src/model.py found" || echo "❌ src/model.py missing"
+[ -f "src/utils.py" ] && echo "✅ src/utils.py found" || echo "❌ src/utils.py missing"
+[ -f "src/transforms.py" ] && echo "✅ src/transforms.py found" || echo "❌ src/transforms.py missing"
+[ -f "src/mixup.py" ] && echo "✅ src/mixup.py found" || echo "❌ src/mixup.py missing"
+[ -f "src/ema.py" ] && echo "✅ src/ema.py found" || echo "❌ src/ema.py missing"
+
+# Test Python imports
+echo ""
+echo "🧪 Testing Python imports..."
+python -c "
+import sys
+sys.path.append('src')
+try:
+    from src.model import get_model
+    from src.transforms import build_transforms
+    from src.mixup import MixupCutmixCollator
+    from src.ema import EMAModel
+    from src.utils import AverageMeter, accuracy
+    print('✅ All core modules import successfully')
+except ImportError as e:
+    print(f'❌ Import error: {e}')
+"
+
+# Test training script syntax
+python -m py_compile train.py && echo "✅ train.py syntax valid" || echo "❌ train.py syntax errors"
+
+echo "=================================="
+echo "Repository setup verification complete!"
+echo "Fix any ❌ issues before proceeding to data download."
 ```
 
 #### ✅ **Step 2.3: Download ImageNet Dataset**
@@ -200,7 +270,12 @@ fi
 # 3. Check conda environment
 conda activate pytorch_env && echo "✅ Conda environment activated" || echo "❌ Conda environment issue"
 
-# 4. Check Python imports
+# 4. Check git repository status
+cd /mnt/nvme_data/imagenet_training
+git status >/dev/null 2>&1 && echo "✅ Git repository properly cloned" || echo "❌ Git repository issue"
+git log --oneline -1 && echo "✅ Latest commit verified" || echo "❌ Git log issue"
+
+# 5. Check Python imports
 python -c "
 import torch
 import torchvision
@@ -216,7 +291,7 @@ if torch.cuda.is_available():
     print(f'GPU: {torch.cuda.get_device_name(0)}')
 " 2>/dev/null && echo "✅ Python environment ready" || echo "❌ Python import issues"
 
-# 5. Check ImageNet dataset
+# 6. Check ImageNet dataset
 if [ -d "/mnt/nvme_data/imagenet/train" ] && [ -d "/mnt/nvme_data/imagenet/val" ]; then
     TRAIN_CLASSES=$(ls /mnt/nvme_data/imagenet/train/ | wc -l)
     VAL_CLASSES=$(ls /mnt/nvme_data/imagenet/val/ | wc -l)
@@ -229,10 +304,10 @@ else
     echo "❌ ImageNet dataset not found"
 fi
 
-# 6. Check HuggingFace authentication
+# 7. Check HuggingFace authentication
 huggingface-cli whoami >/dev/null 2>&1 && echo "✅ HuggingFace authenticated" || echo "❌ HuggingFace login required"
 
-# 7. Test training script syntax
+# 8. Test training script syntax
 python -m py_compile train.py && echo "✅ Training script syntax valid" || echo "❌ Training script has syntax errors"
 
 echo "======================="
