@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
 __all__ = [
     'TrainingConfig', 'AverageMeter', 'accuracy', 'save_checkpoint', 
     'load_checkpoint', 'get_onecycle_scheduler', 'WarmupCosineScheduler', 
-    'setup_logging', 'seed_everything', 'get_device'
+    'setup_logging', 'seed_everything', 'get_device', 'format_time'
 ]
 
 
@@ -75,14 +75,14 @@ class WarmupCosineScheduler:
         return [group['lr'] for group in self.optimizer.param_groups]
     
     def state_dict(self):
-    """Return scheduler state for checkpointing."""
-    return {
-        'current_epoch': self.current_epoch,
-        'warmup_epochs': self.warmup_epochs,
-        'total_epochs': self.total_epochs,
-        'base_lr': self.base_lr,
-        'warmup_lr': self.warmup_lr
-    }
+        """Return scheduler state for checkpointing."""
+        return {
+            'current_epoch': self.current_epoch,
+            'warmup_epochs': self.warmup_epochs,
+            'total_epochs': self.total_epochs,
+            'base_lr': self.base_lr,
+            'warmup_lr': self.warmup_lr
+        }
 
     def load_state_dict(self, state_dict):
         """Load scheduler state from checkpoint."""

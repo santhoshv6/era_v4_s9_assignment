@@ -1,273 +1,542 @@
-# ResNet50 ImageNet Training From Scratch - Complete Project 🚀
+# 🚀 ResNet50 ImageNet Training - Production Ready# ResNet50 ImageNet Training From Scratch - Complete Project 🚀
 
-**Goal**: Train ResNet50 from scratch on ImageNet 1K to achieve **81% Top-1 accuracy** - a challenging feat accomplished by only ~10,000 people worldwide!
 
-![Project Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+
+**Goal**: Train ResNet50 from scratch to achieve **81% top-1 accuracy** on ImageNet using AWS EC2 spot instances.**Goal**: Train ResNet50 from scratch on ImageNet 1K to achieve **81% Top-1 accuracy** - a challenging feat accomplished by only ~10,000 people worldwide!
+
+
+
+**Strategy**: EMA (first 100 epochs) + SWA (last 20 epochs) with cosine annealing for optimal convergence.![Project Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+
 ![Notebook Version](https://img.shields.io/badge/Notebook-v4-blue)
-![Target Accuracy](https://img.shields.io/badge/Target%20Accuracy-81%25-orange)
 
-## 🎯 Project Overview
+**Expected Cost**: ~$25 on g4dn.2xlarge spot instance![Target Accuracy](https://img.shields.io/badge/Target%20Accuracy-81%25-orange)
 
-This is a **complete end-to-end project** for training ResNet50 from scratch (no pretrained weights) on ImageNet 1K using a **three-phase strategy**:
 
-1. **🧪 Kaggle Validation Phase**: Test pipeline on TinyImageNet sample (200 classes)
-2. **🔧 EC2 Replication Phase**: Replicate setup on AWS EC2 with full environment
-3. **🚀 Production Training Phase**: Full ImageNet 1K training with advanced techniques
 
-### Key Features
-- **Complete Production Pipeline**: Modular, scalable, and maintainable code
+---## 🎯 Project Overview
+
+
+
+## 📋 Quick StartThis is a **complete end-to-end project** for training ResNet50 from scratch (no pretrained weights) on ImageNet 1K using a **three-phase strategy**:
+
+
+
+### 1. Setup EC2 Instance1. **🧪 Kaggle Validation Phase**: Test pipeline on TinyImageNet sample (200 classes)
+
+```bash2. **🔧 EC2 Replication Phase**: Replicate setup on AWS EC2 with full environment
+
+# Run the setup script3. **🚀 Production Training Phase**: Full ImageNet 1K training with advanced techniques
+
+chmod +x setup_ec2.sh
+
+./setup_ec2.sh### Key Features
+
+```- **Complete Production Pipeline**: Modular, scalable, and maintainable code
+
 - **Advanced Techniques**: Mixup/CutMix, Label Smoothing, Mixed Precision Training
-- **Comprehensive Analysis**: Architecture visualization, GradCAM, confusion matrices
-- **Cloud-Ready**: Seamless transition from Kaggle to EC2 to production
 
-## � Project Strategy & Implementation Plan
+### 2. Prepare Dataset- **Comprehensive Analysis**: Architecture visualization, GradCAM, confusion matrices
 
-### Phase 1: Kaggle Validation 🧪
-**Purpose**: Validate training pipeline and techniques on manageable dataset
+```bash- **Cloud-Ready**: Seamless transition from Kaggle to EC2 to production
+
+# Download ImageNet (or use existing)
+
+mkdir -p /mnt/nvme_data/imagenet## � Project Strategy & Implementation Plan
+
+# Place your ImageNet data in:
+
+# /mnt/nvme_data/imagenet/train/  (1000 class folders)### Phase 1: Kaggle Validation 🧪
+
+# /mnt/nvme_data/imagenet/val/    (1000 class folders)**Purpose**: Validate training pipeline and techniques on manageable dataset
+
+```
 
 - **Dataset**: TinyImageNet (200 classes, 100K images)
-- **Environment**: Kaggle GPU (T4/P100, 16GB RAM)
-- **Duration**: 5 epochs (~30 minutes)
-- **Batch Size**: 32 (memory-optimized for Kaggle)
-- **Expected Accuracy**: 30-60% (proof of concept)
 
-**Key Validations**:
-- ✅ Modular code structure works correctly
-- ✅ Advanced techniques (Mixup/CutMix) integrate properly
-- ✅ Training loop handles mixed precision correctly
-- ✅ All artifacts generate successfully
+### 3. Start Training- **Environment**: Kaggle GPU (T4/P100, 16GB RAM)
 
-### Phase 2: EC2 Environment Replication 🔧
+```bash- **Duration**: 5 epochs (~30 minutes)
+
+# Activate environment- **Batch Size**: 32 (memory-optimized for Kaggle)
+
+conda activate pytorch_env- **Expected Accuracy**: 30-60% (proof of concept)
+
+
+
+# Start training (runs in background with logging)**Key Validations**:
+
+nohup python train.py \- ✅ Modular code structure works correctly
+
+    --data /mnt/nvme_data/imagenet \- ✅ Advanced techniques (Mixup/CutMix) integrate properly
+
+    --output-dir ./outputs \- ✅ Training loop handles mixed precision correctly
+
+    --epochs 120 \- ✅ All artifacts generate successfully
+
+    --batch-size 256 \
+
+    > training.log 2>&1 &### Phase 2: EC2 Environment Replication 🔧
+
 **Purpose**: Replicate Kaggle environment on EC2 without consuming significant credits
 
-**Instance Configuration**: `g4dn.xlarge` (FREE TIER FRIENDLY)
-- **vCPUs**: 4 (Half of AWS limit, minimal cost)
+# Monitor progress
+
+tail -f training.log**Instance Configuration**: `g4dn.xlarge` (FREE TIER FRIENDLY)
+
+```- **vCPUs**: 4 (Half of AWS limit, minimal cost)
+
 - **Memory**: 16 GB (Sufficient for sample dataset)
-- **GPU**: 1x NVIDIA T4 (16GB) - Same as Kaggle performance
-- **Storage**: 125 GB NVMe SSD (Fast I/O)
-- **Spot Price**: $0.113-0.151/hour (~75% savings)
 
-**Dataset & Training**:
-- **Dataset**: ImageNet sample (100 classes, ~5K images)
-- **Duration**: 2-4 hours (15-20 epochs)
-- **Expected Accuracy**: 60-70% (same as Kaggle)
-- **Total Cost**: $0.50-$1.50 (minimal credit usage)
+### 4. Monitor Training- **GPU**: 1x NVIDIA T4 (16GB) - Same as Kaggle performance
 
-**Key Validations**:
-- ✅ Identical environment to Kaggle setup
-- ✅ Quick validation without exhausting free credits
+```bash- **Storage**: 125 GB NVMe SSD (Fast I/O)
+
+# Check current status- **Spot Price**: $0.113-0.151/hour (~75% savings)
+
+python -c "
+
+import torch**Dataset & Training**:
+
+checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')- **Dataset**: ImageNet sample (100 classes, ~5K images)
+
+print(f'Best Accuracy: {checkpoint[\"best_acc1\"]:.2f}%')- **Duration**: 2-4 hours (15-20 epochs)
+
+print(f'Epoch: {checkpoint[\"epoch\"]}')- **Expected Accuracy**: 60-70% (same as Kaggle)
+
+"- **Total Cost**: $0.50-$1.50 (minimal credit usage)
+
+
+
+# View full logs**Key Validations**:
+
+cat training.log | grep "Best:"- ✅ Identical environment to Kaggle setup
+
+```- ✅ Quick validation without exhausting free credits
+
 - ✅ Same GPU performance class (T4)
-- ✅ Environment setup scripts validated
 
-### Phase 3: Full ImageNet Production Training 🚀
+---- ✅ Environment setup scripts validated
+
+
+
+## 🎯 Expected Timeline & Milestones### Phase 3: Full ImageNet Production Training 🚀
+
 **Purpose**: Achieve 81% top-1 accuracy on full ImageNet 1K with optimized cost-performance
 
-**Instance Configuration**: `g4dn.2xlarge` (OPTIMAL BALANCE)
-- **vCPUs**: 8 (Exactly matches AWS limit)
-- **Memory**: 32 GB (Required for full ImageNet dataset)
-- **GPU**: 1x NVIDIA T4 (16GB VRAM) - Sufficient for batch_size=64
-- **Storage**: 225 GB NVMe SSD (Fast I/O for 1.3M images)
-- **Spot Price**: $0.226-0.301/hour (~70% savings vs on-demand)
+| Epoch | Expected Accuracy | Time Elapsed | Strategy |
 
-**Training Configuration**:
+|-------|------------------|--------------|----------|**Instance Configuration**: `g4dn.2xlarge` (OPTIMAL BALANCE)
+
+| 10    | ~30%            | ~8 hours     | EMA Warmup |- **vCPUs**: 8 (Exactly matches AWS limit)
+
+| 30    | ~55%            | ~24 hours    | EMA Active |- **Memory**: 32 GB (Required for full ImageNet dataset)
+
+| 50    | ~68%            | ~40 hours    | EMA Stable |- **GPU**: 1x NVIDIA T4 (16GB VRAM) - Sufficient for batch_size=64
+
+| 81    | **>75%**        | ~65 hours    | **Milestone** |- **Storage**: 225 GB NVMe SSD (Fast I/O for 1.3M images)
+
+| 90    | **>77%**        | ~72 hours    | **Milestone** |- **Spot Price**: $0.226-0.301/hour (~70% savings vs on-demand)
+
+| 100   | ~79%            | ~80 hours    | EMA→SWA Transition |
+
+| 120   | **>81%**        | ~96 hours    | **🎯 TARGET** |**Training Configuration**:
+
 - **Dataset**: Full ImageNet 1K (1000 classes, 1.3M training images)
-- **Duration**: 60-80 hours (100 epochs)
-- **Batch Size**: 64 (optimized for T4 16GB VRAM)
-- **Advanced Techniques**: Mixup/CutMix, Label Smoothing, AMP
-- **Total Cost**: $15-25 (realistic: ~$18.48)
-- **Target**: 81% Top-1 validation accuracy
 
-**Cost-Performance Analysis**:
-- **Balanced Choice**: g4dn.2xlarge offers optimal speed/cost ratio
-- **Training Time**: 70 hours @ $0.264/hr = $18.48 total
+---- **Duration**: 60-80 hours (100 epochs)
+
+- **Batch Size**: 64 (optimized for T4 16GB VRAM)
+
+## 💰 Cost Tracking- **Advanced Techniques**: Mixup/CutMix, Label Smoothing, AMP
+
+- **Total Cost**: $15-25 (realistic: ~$18.48)
+
+### Instance Configuration- **Target**: 81% Top-1 validation accuracy
+
+- **Instance**: g4dn.2xlarge
+
+- **GPU**: NVIDIA T4 (16GB)**Cost-Performance Analysis**:
+
+- **Spot Price**: ~$0.264/hour- **Balanced Choice**: g4dn.2xlarge offers optimal speed/cost ratio
+
+- **Storage**: 500GB NVMe SSD- **Training Time**: 70 hours @ $0.264/hr = $18.48 total
+
 - **Checkpointing**: Every 2 epochs for spot interruption recovery
 
-## 📁 Project Structure
+### Cost Breakdown
 
-```
-📦 resnet50-imagenet-project/
-├── 📓 imagenet_kaggle_notebook_v4.ipynb    # Complete Kaggle pipeline
+```## 📁 Project Structure
+
+Training: 96 hours × $0.264/hour = $25.34
+
+Storage: 500GB × $0.05/month ≈ $0.80/week```
+
+Total: ~$26 for complete training📦 resnet50-imagenet-project/
+
+```├── 📓 imagenet_kaggle_notebook_v4.ipynb    # Complete Kaggle pipeline
+
 ├── 📂 src/                                  # Modular source code
-│   ├── 🧠 model.py                         # ResNet50 implementation  
-│   ├── 🎨 transforms.py                    # Data augmentation pipeline
-│   ├── ⚙️  utils.py                        # Training utilities & config
-│   ├── 🏃 train.py                         # Main training framework
-│   ├── 🎭 mixup.py                         # Advanced augmentation
-│   ├── 🔍 gradcam.py                       # Model interpretability
-│   └── 🐛 debug_synthetic_run.py           # Testing utilities
-├── 📂 outputs/                             # Generated artifacts
+
+### Cost Monitoring│   ├── 🧠 model.py                         # ResNet50 implementation  
+
+```bash│   ├── 🎨 transforms.py                    # Data augmentation pipeline
+
+# Check current costs│   ├── ⚙️  utils.py                        # Training utilities & config
+
+aws ec2 describe-spot-price-history \│   ├── 🏃 train.py                         # Main training framework
+
+    --instance-types g4dn.2xlarge \│   ├── 🎭 mixup.py                         # Advanced augmentation
+
+    --product-descriptions "Linux/UNIX" \│   ├── 🔍 gradcam.py                       # Model interpretability
+
+    --max-items 1│   └── 🐛 debug_synthetic_run.py           # Testing utilities
+
+```├── 📂 outputs/                             # Generated artifacts
+
 │   ├── 📄 training_log_v4.md              # Training progress logs
-│   ├── 📊 training_history_v4.json        # Metrics data
+
+---│   ├── 📊 training_history_v4.json        # Metrics data
+
 │   ├── 🏗️  architecture_analysis_v4.md    # Model analysis
-│   ├── 🎯 class_analysis_v4.md            # Per-class results
+
+## 🔧 Advanced Configuration│   ├── 🎯 class_analysis_v4.md            # Per-class results
+
 │   ├── 🔍 gradcam_summary_v4.md           # Visualization analysis
-│   ├── 💾 checkpoints/                    # Model checkpoints
-│   └── 🖼️  gradcam/                       # Visualization outputs
-├── 🔧 setup_scripts/                       # EC2 setup automation
-│   ├── 📜 setup_ec2.sh                    # Instance initialization
-│   ├── 🐳 docker_setup.sh                 # Containerized environment
-│   └── 📋 install_dependencies.sh         # Package installation
-├── 📊 monitoring/                          # Training monitoring
-│   ├── 📈 wandb_config.py                 # Weights & Biases setup
-│   └── 📱 tensorboard_setup.py            # TensorBoard configuration
-├── 📋 requirements.txt                     # Python dependencies
+
+### Custom Training Parameters│   ├── 💾 checkpoints/                    # Model checkpoints
+
+```bash│   └── 🖼️  gradcam/                       # Visualization outputs
+
+# High accuracy mode (slower but better)├── 🔧 setup_scripts/                       # EC2 setup automation
+
+python train.py \│   ├── 📜 setup_ec2.sh                    # Instance initialization
+
+    --data /mnt/nvme_data/imagenet \│   ├── 🐳 docker_setup.sh                 # Containerized environment
+
+    --epochs 140 \│   └── 📋 install_dependencies.sh         # Package installation
+
+    --ema-epochs 110 \├── 📊 monitoring/                          # Training monitoring
+
+    --swa-epochs 30 \│   ├── 📈 wandb_config.py                 # Weights & Biases setup
+
+    --lr 0.08 \│   └── 📱 tensorboard_setup.py            # TensorBoard configuration
+
+    --mixup-prob 0.9├── 📋 requirements.txt                     # Python dependencies
+
 ├── 🔧 environment.yml                      # Conda environment
-└── 📖 README.md                           # This documentation
-```
 
-## 🏗️ Model Architecture - ResNet50 From Scratch
+# Fast mode (90 epochs like friend's strategy)└── 📖 README.md                           # This documentation
 
-### Core Specifications
-| Component | Details |
-|-----------|---------|
+python train.py \```
+
+    --data /mnt/nvme_data/imagenet \
+
+    --epochs 90 \## 🏗️ Model Architecture - ResNet50 From Scratch
+
+    --ema-epochs 80 \
+
+    --swa-epochs 10 \### Core Specifications
+
+    --lr 0.1| Component | Details |
+
+```|-----------|---------|
+
 | **Architecture** | ResNet50 with Bottleneck blocks |
-| **Parameters** | 25.6M (25,557,032 trainable) |
-| **Model Size** | 97.5 MB |
-| **FLOPs** | 4.1 GFLOPs per forward pass |
-| **Receptive Field** | 267 pixels (119% input coverage) |
-| **Memory (Training)** | ~8GB for batch_size=64 |
 
-### Advanced Training Configuration
+### Resume Training| **Parameters** | 25.6M (25,557,032 trainable) |
+
+```bash| **Model Size** | 97.5 MB |
+
+# If training gets interrupted| **FLOPs** | 4.1 GFLOPs per forward pass |
+
+python train.py \| **Receptive Field** | 267 pixels (119% input coverage) |
+
+    --data /mnt/nvme_data/imagenet \| **Memory (Training)** | ~8GB for batch_size=64 |
+
+    --resume ./outputs/best_model.pth \
+
+    --output-dir ./outputs### Advanced Training Configuration
+
+```
 
 #### v4 Notebook Features
-- **🧪 Advanced Technique Testing**: Comprehensive validation of Mixup/CutMix
+
+---- **🧪 Advanced Technique Testing**: Comprehensive validation of Mixup/CutMix
+
 - **🔧 Bug-Free Implementation**: Fixed autocast deprecation and GradCAM issues  
-- **📊 Rich Analysis**: Architecture tables, receptive field analysis, memory breakdown
+
+## 📊 Results Analysis- **📊 Rich Analysis**: Architecture tables, receptive field analysis, memory breakdown
+
 - **🎯 Production Ready**: Modular imports, proper error handling, extensive logging
 
-#### Anti-Overfitting Strategy
-```python
-config = TrainingConfig()
-# Weight Decay: 3e-4 (L2 regularization)
-# Label Smoothing: 0.15 (better generalization)  
-# Mixup Alpha: 0.2 (data augmentation)
-# CutMix Alpha: 1.0 (spatial augmentation)
+### Expected Final Results
+
+```#### Anti-Overfitting Strategy
+
+✅ Target Achieved: 81.0%+ top-1 accuracy```python
+
+🎯 Comparable to: ImageNet SOTA from-scratch trainingconfig = TrainingConfig()
+
+💡 Key Techniques: EMA + SWA + Cosine Annealing + Mixup# Weight Decay: 3e-4 (L2 regularization)
+
+⏱️  Training Time: ~96 hours (~4 days)# Label Smoothing: 0.15 (better generalization)  
+
+💰 Total Cost: ~$26# Mixup Alpha: 0.2 (data augmentation)
+
+```# CutMix Alpha: 1.0 (spatial augmentation)
+
 # Warmup Epochs: 5 (stable training start)
-# Cosine LR Schedule: Smooth convergence
-```
 
-## 📊 Model Architecture & Analysis
+### Model Performance# Cosine LR Schedule: Smooth convergence
 
-### Model Summary
-| Component | Details |
+```bash```
+
+# Test final model
+
+python -c "## 📊 Model Architecture & Analysis
+
+import torch
+
+from src.model import get_model### Model Summary
+
+from src.utils import accuracy| Component | Details |
+
 |-----------|---------|
-| **Architecture** | ResNet50 with Bottleneck blocks |
-| **Total Parameters** | 25,557,032 |
-| **Trainable Parameters** | 25,557,032 |
-| **Model Size** | 97.5 MB |
-| **Input Size** | 224×224×3 |
-| **Output Classes** | 1000 (ImageNet) |
-| **Approximate FLOPs** | 4.1 GFLOPs |
 
-### Layer-wise Parameter Distribution
-| Layer Type | Parameters | Percentage |
+# Load best model| **Architecture** | ResNet50 with Bottleneck blocks |
+
+model = get_model('resnet50', num_classes=1000)| **Total Parameters** | 25,557,032 |
+
+checkpoint = torch.load('./outputs/best_model.pth')| **Trainable Parameters** | 25,557,032 |
+
+model.load_state_dict(checkpoint['model_state_dict'])| **Model Size** | 97.5 MB |
+
+| **Input Size** | 224×224×3 |
+
+print(f'Model Type: {checkpoint[\"model_type\"]}')| **Output Classes** | 1000 (ImageNet) |
+
+print(f'Best Accuracy: {checkpoint[\"best_acc1\"]:.2f}%')| **Approximate FLOPs** | 4.1 GFLOPs |
+
+print(f'Training Epoch: {checkpoint[\"epoch\"]}')
+
+"### Layer-wise Parameter Distribution
+
+```| Layer Type | Parameters | Percentage |
+
 |------------|------------|-----------|
-| **Final Classifier (fc)** | 2,049,000 | 8.0% |
+
+---| **Final Classifier (fc)** | 2,049,000 | 8.0% |
+
 | **Layer 4 Bottlenecks** | 14,942,720 | 58.4% |
-| **Layer 3 Bottlenecks** | 6,039,552 | 23.6% |
+
+## 🚨 Troubleshooting| **Layer 3 Bottlenecks** | 6,039,552 | 23.6% |
+
 | **Layer 2 Bottlenecks** | 1,512,448 | 5.9% |
-| **Layer 1 Bottlenecks** | 379,392 | 1.5% |
+
+### Common Issues| **Layer 1 Bottlenecks** | 379,392 | 1.5% |
+
 | **Initial Conv + BN** | 9,472 | 0.04% |
 
-### Receptive Field Analysis
-| Layer | Kernel | Stride | Receptive Field | Output Size | Jump |
-|-------|--------|--------|-----------------|-------------|------|
-| Input | - | - | 1 | 224×224 | 1 |
+#### 1. Out of Memory
+
+```bash### Receptive Field Analysis
+
+# Reduce batch size| Layer | Kernel | Stride | Receptive Field | Output Size | Jump |
+
+python train.py --batch-size 128  # Instead of 256|-------|--------|--------|-----------------|-------------|------|
+
+```| Input | - | - | 1 | 224×224 | 1 |
+
 | conv1 | 7×7 | 2 | 7 | 112×112 | 2 |
-| maxpool | 3×3 | 2 | 11 | 56×56 | 4 |
-| layer1 | 3×3 | 1 | 19 | 56×56 | 4 |
-| layer2 | 3×3 | 2 | 27 | 28×28 | 8 |
-| layer3 | 3×3 | 2 | 43 | 14×14 | 16 |
-| layer4 | 3×3 | 2 | 75 | 7×7 | 32 |
+
+#### 2. Slow Data Loading| maxpool | 3×3 | 2 | 11 | 56×56 | 4 |
+
+```bash| layer1 | 3×3 | 1 | 19 | 56×56 | 4 |
+
+# Increase workers| layer2 | 3×3 | 2 | 27 | 28×28 | 8 |
+
+python train.py --workers 16  # Instead of 8| layer3 | 3×3 | 2 | 43 | 14×14 | 16 |
+
+```| layer4 | 3×3 | 2 | 75 | 7×7 | 32 |
+
 | avgpool | 7×7 | 7 | 267 | 1×1 | 224 |
 
-**Key Insights:**
-- 🎯 **Final Receptive Field**: 267 pixels (119% of input image)
-- ✅ **Full Coverage**: Receptive field covers entire 224×224 input
+#### 3. Spot Instance Interruption
+
+```bash**Key Insights:**
+
+# Check interruption warnings- 🎯 **Final Receptive Field**: 267 pixels (119% of input image)
+
+curl -s http://169.254.169.254/latest/meta-data/spot/instance-action- ✅ **Full Coverage**: Receptive field covers entire 224×224 input
+
 - 🔄 **Total Downsampling**: 32× (224→7 feature maps)
-- 📊 **Feature Density**: 7×7×2048 = 100,352 features before classification
 
-### Architecture Design Choices
+# Auto-resume script- 📊 **Feature Density**: 7×7×2048 = 100,352 features before classification
 
-**ImageNet-Specific Optimizations:**
-- **7×7 Initial Conv**: Larger receptive field for high-resolution inputs
-- **Stride-2 + MaxPool**: Aggressive early downsampling to manage computation
-- **Bottleneck Blocks**: 1×1→3×3→1×1 design reduces parameters while maintaining capacity
-- **Batch Normalization**: After every convolution for stable training
-- **Global Average Pooling**: Replaces fully connected layers, reduces overfitting
+#!/bin/bash
+
+while true; do### Architecture Design Choices
+
+    if [ -f "./outputs/best_model.pth" ]; then
+
+        python train.py --resume ./outputs/best_model.pth --data /mnt/nvme_data/imagenet**ImageNet-Specific Optimizations:**
+
+    else- **7×7 Initial Conv**: Larger receptive field for high-resolution inputs
+
+        python train.py --data /mnt/nvme_data/imagenet- **Stride-2 + MaxPool**: Aggressive early downsampling to manage computation
+
+    fi- **Bottleneck Blocks**: 1×1→3×3→1×1 design reduces parameters while maintaining capacity
+
+    sleep 60- **Batch Normalization**: After every convolution for stable training
+
+done- **Global Average Pooling**: Replaces fully connected layers, reduces overfitting
+
+```
 
 **Training-from-Scratch Considerations:**
-- **He Initialization**: Kaiming normal for ReLU networks
-- **Zero-init Residual**: Last BN in each block initialized to zero
-- **No Dropout**: ResNet50 typically doesn't use dropout (relies on residual connections)
-- **Deep Architecture**: 50 layers provide sufficient capacity for ImageNet complexity
 
-**Memory & Computation:**
-- **Peak Memory**: ~8GB for batch_size=64 with mixed precision
+#### 4. Low Accuracy- **He Initialization**: Kaiming normal for ReLU networks
+
+```bash- **Zero-init Residual**: Last BN in each block initialized to zero
+
+# Check if milestones are met:- **No Dropout**: ResNet50 typically doesn't use dropout (relies on residual connections)
+
+# Epoch 81: Should be >75%- **Deep Architecture**: 50 layers provide sufficient capacity for ImageNet complexity
+
+# Epoch 90: Should be >77%
+
+# If not, verify dataset and try higher learning rate**Memory & Computation:**
+
+```- **Peak Memory**: ~8GB for batch_size=64 with mixed precision
+
 - **Training Speed**: ~4.1 GFLOPs per forward pass
-- **Gradient Memory**: ~2× model size during backpropagation
 
-## 🧪 Quick Start: Kaggle Testing (Phase 1)
+---- **Gradient Memory**: ~2× model size during backpropagation
 
-### 1. Setup Kaggle Environment
-1. **Create Kaggle Account**: Sign up at [kaggle.com](https://kaggle.com)
-2. **Enable GPU**: Settings → Accelerator → GPU T4 x2
-3. **Upload Notebook**: Import `imagenet_kaggle_notebook_v4.ipynb`
-4. **Enable Internet**: For package installations
 
-### 2. Expected Kaggle Results
+
+## 📁 Output Files## 🧪 Quick Start: Kaggle Testing (Phase 1)
+
+
+
+After training, you'll have:### 1. Setup Kaggle Environment
+
+```1. **Create Kaggle Account**: Sign up at [kaggle.com](https://kaggle.com)
+
+outputs/2. **Enable GPU**: Settings → Accelerator → GPU T4 x2
+
+├── best_model.pth          # Best model weights3. **Upload Notebook**: Import `imagenet_kaggle_notebook_v4.ipynb`
+
+├── training.log            # Detailed logs4. **Enable Internet**: For package installations
+
+└── checkpoints/            # Periodic saves
+
+```### 2. Expected Kaggle Results
+
 ```
-🖥️  Device Status: CUDA (Tesla T4) - Mixed Precision ENABLED ⚡
 
-📊 v4 Training Results (5 epochs on TinyImageNet):
+---🖥️  Device Status: CUDA (Tesla T4) - Mixed Precision ENABLED ⚡
+
+
+
+## ✅ Success Criteria📊 v4 Training Results (5 epochs on TinyImageNet):
+
    • Dataset: 200 classes, 100K training images
-   • Batch Size: 32 (Kaggle optimized)
-   • Training Time: ~30 minutes
-   • Batches per Epoch: 3,125
-   • Final Training Accuracy: 45-65%
-   • Final Validation Accuracy: 35-55%
+
+**Training is successful if**:   • Batch Size: 32 (Kaggle optimized)
+
+- [x] Reaches >75% accuracy by epoch 81   • Training Time: ~30 minutes
+
+- [x] Reaches >77% accuracy by epoch 90   • Batches per Epoch: 3,125
+
+- [x] Achieves >81% final accuracy   • Final Training Accuracy: 45-65%
+
+- [x] Completes within budget (~$30)   • Final Validation Accuracy: 35-55%
+
+- [x] No major interruptions or errors
 
 📁 Generated Artifacts:
-   ✅ training_log_v4.md - Complete epoch logs
-   ✅ architecture_analysis_v4.md - Model structure
-   ✅ gradcam/ - 6 visualization samples  
-   ✅ confusion_matrix_v4.png - Class analysis
-   ✅ resnet50_v4_final.pth - Model checkpoint
+
+**If accuracy is below target**:   ✅ training_log_v4.md - Complete epoch logs
+
+1. Check data loading (ImageNet format)   ✅ architecture_analysis_v4.md - Model structure
+
+2. Verify GPU utilization (should be >90%)   ✅ gradcam/ - 6 visualization samples  
+
+3. Check learning rate schedule   ✅ confusion_matrix_v4.png - Class analysis
+
+4. Ensure EMA→SWA transition is working   ✅ resnet50_v4_final.pth - Model checkpoint
+
 ```
 
+---
+
 ### 3. Key v4 Improvements
-- **� No Deprecation Warnings**: Fixed PyTorch autocast issues
+
+## 🎉 Next Steps After Success- **� No Deprecation Warnings**: Fixed PyTorch autocast issues
+
 - **📊 Enhanced Monitoring**: Clear CUDA/CPU detection and status
-- **🎭 Advanced Augmentation**: Properly integrated Mixup/CutMix
-- **🔍 Rich Visualizations**: GradCAM working with correct API
-- **📈 Better Progress Tracking**: tqdm bars with meaningful metrics
+
+1. **Save Results**: Download model and logs- **🎭 Advanced Augmentation**: Properly integrated Mixup/CutMix
+
+2. **Document**: Record exact accuracy and cost- **🔍 Rich Visualizations**: GradCAM working with correct API
+
+3. **Optimize**: Try different hyperparameters for >82%- **📈 Better Progress Tracking**: tqdm bars with meaningful metrics
+
+4. **Deploy**: Use model for inference or transfer learning
 
 ## 🚀 EC2 Production Setup (Phase 2 & 3)
 
+---
+
 ### Instance Requirements
 
+**🚀 Happy Training! Target: 81% accuracy for ~$25**
+
 | Phase | Instance Type | GPUs | vCPUs | RAM | Storage | Spot Price* | Use Case |
-|-------|---------------|------|-------|-----|---------|-------------|----------|
+
+---|-------|---------------|------|-------|-----|---------|-------------|----------|
+
 | **Phase 2** (Testing) | `g4dn.xlarge` | 1x T4 | 4 | 16 GB | 125GB NVMe | $0.113-0.151 | Environment replication |
-| **Phase 3** (Production) | `g4dn.2xlarge` | 1x T4 | 8 | 32 GB | 225GB NVMe | $0.226-0.301 | Full ImageNet training |
 
-*Spot instance pricing with ~70-75% savings vs on-demand
+## 📁 Project Structure| **Phase 3** (Production) | `g4dn.2xlarge` | 1x T4 | 8 | 32 GB | 225GB NVMe | $0.226-0.301 | Full ImageNet training |
 
-### EC2 Setup Process
 
-#### 1. Launch Instance
-```bash
-# Use Deep Learning AMI (Ubuntu 18.04/20.04)
-# AMI ID: ami-0c6b1d09930fac512 (check latest)
-aws ec2 run-instances \
-  --image-id ami-0c6b1d09930fac512 \
-  --instance-type p3.8xlarge \
-  --key-name your-key-pair \
-  --security-groups deep-learning-sg \
-  --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":1000,"VolumeType":"gp3"}}]'
-```
 
-#### 2. Connect and Setup
+```*Spot instance pricing with ~70-75% savings vs on-demand
+
+s9_assignment/
+
+├── train.py                # Main training script### EC2 Setup Process
+
+├── requirements.txt        # Python dependencies
+
+├── setup_ec2.sh           # EC2 setup automation#### 1. Launch Instance
+
+├── README.md              # This file```bash
+
+├── src/                   # Core modules# Use Deep Learning AMI (Ubuntu 18.04/20.04)
+
+│   ├── model.py           # ResNet50 implementation# AMI ID: ami-0c6b1d09930fac512 (check latest)
+
+│   ├── transforms.py      # Data augmentationaws ec2 run-instances \
+
+│   ├── mixup.py           # Mixup/CutMix  --image-id ami-0c6b1d09930fac512 \
+
+│   ├── ema.py             # EMA implementation  --instance-type p3.8xlarge \
+
+│   ├── utils.py           # Training utilities  --key-name your-key-pair \
+
+│   └── gradcam.py         # Visualization  --security-groups deep-learning-sg \
+
+└── imagenet_real_sample/  # Sample dataset  --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":1000,"VolumeType":"gp3"}}]'
+
+    ├── train/```
+
+    └── val/
+
+```#### 2. Connect and Setup
 ```bash
 # Connect to instance
 ssh -i your-key.pem ubuntu@ec2-xx-xxx-xxx-xxx.compute-1.amazonaws.com
