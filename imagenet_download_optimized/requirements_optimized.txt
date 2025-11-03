@@ -1,0 +1,24 @@
+# Core dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.21.0
+tqdm>=4.64.0
+Pillow>=9.0.0
+
+# Hugging Face for dataset download
+datasets>=2.14.0
+huggingface_hub>=0.17.0
+
+# System monitoring and optimization
+psutil>=5.9.0
+
+# Optional for enhanced performance
+# accelerate>=0.20.0  # For multi-GPU support
+# torch-ema>=0.3.0   # For exponential moving averages
+
+# For training (existing dependencies)
+torch-lr-finder>=0.2.1
+
+# Optional: Experiment tracking
+# wandb>=0.15.0
+# tensorboard>=2.13.0

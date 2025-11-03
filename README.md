@@ -36,19 +36,40 @@ chmod +x setup_ec2.sh
 
 - **Advanced Techniques**: Mixup/CutMix, Label Smoothing, Mixed Precision Training
 
-### 2. Prepare Dataset- **Comprehensive Analysis**: Architecture visualization, GradCAM, confusion matrices
+### 2. Prepare Dataset
 
-```bash- **Cloud-Ready**: Seamless transition from Kaggle to EC2 to production
+#### 🚀 Fast ImageNet Download (NEW!)
+**Use the optimized download system in `imagenet_download_optimized/` folder:**
 
+```bash
+cd imagenet_download_optimized
+
+# For EC2 g4dn.2xlarge (Recommended)
+export HF_TOKEN="your_hf_token_here"
+chmod +x setup_and_download.sh
+bash setup_and_download.sh
+```
+
+**Key Features:**
+- ✅ **Smart Resume**: Exact point resume from interruptions
+- ✅ **GPU Acceleration**: 3-5x faster (6-12 hours vs days)
+- ✅ **Auto Setup**: Configures EC2 g4dn.2xlarge optimally
+- ✅ **Error Recovery**: Handles spot instance interruptions
+
+#### Manual ImageNet Setup
+```bash
 # Download ImageNet (or use existing)
-
-mkdir -p /mnt/nvme_data/imagenet## � Project Strategy & Implementation Plan
+mkdir -p /mnt/nvme_data/imagenet
 
 # Place your ImageNet data in:
+# /mnt/nvme_data/imagenet/train/  (1000 class folders)
+# /mnt/nvme_data/imagenet/val/    (1000 class folders)
+```
 
-# /mnt/nvme_data/imagenet/train/  (1000 class folders)### Phase 1: Kaggle Validation 🧪
+## 🔄 Project Strategy & Implementation Plan
 
-# /mnt/nvme_data/imagenet/val/    (1000 class folders)**Purpose**: Validate training pipeline and techniques on manageable dataset
+### Phase 1: Kaggle Validation 🧪
+**Purpose**: Validate training pipeline and techniques on manageable dataset
 
 ```
 
