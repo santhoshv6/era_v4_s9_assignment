@@ -414,28 +414,38 @@ echo "Repository setup verification complete!"
 echo "Fix any ❌ issues before proceeding to data download."
 ```
 
-#### ✅ **Step 2.3: Download ImageNet Dataset**
+#### ✅ **Step 2.3: Download ImageNet Dataset - ULTRA-FAST OPTIONS**
 ```bash
 # Navigate to project directory
 cd /mnt/nvme_data/imagenet_training
 
-# Start ImageNet download (this takes 1-3 hours)
+# OPTION 1: Ultra-Fast Download (NEW!) - Uses all available resources
+# This will utilize CPU cores optimally and GPU acceleration
+python download_imagenet_ultra_fast.py \
+  --output-dir /mnt/nvme_data/imagenet \
+  --split train \
+  --aggressive
+
+# OPTION 2: Optimized Parallel Download (NEW!) - Balanced approach
+python download_imagenet_parallel.py \
+  --output-dir /mnt/nvme_data/imagenet \
+  --split train \
+  --num-workers 20 \
+  --chunk-size 3000 \
+  --skip-existing
+
+# OPTION 3: Original Download (Slower but stable)
 python download_imagenet_hf.py \
   --output-dir /mnt/nvme_data/imagenet \
-  --num-workers 8 \
-  --chunk-size 1000 \
-  --quality 95 \
-  --verify
+  --num-workers 16 \
+  --chunk-size 2000 \
+  --skip-existing
 
-# For faster download (if system can handle it)
-# python download_imagenet_hf.py \
-#   --output-dir /mnt/nvme_data/imagenet \
-#   --num-workers 16 \
-#   --chunk-size 2000 \
-#   --skip-existing
+# For g4dn.2xlarge with underutilized resources, use OPTION 1!
+# Expected speed improvement: 3-5x faster than original
 
-# Monitor download progress
-# The script shows progress bars and statistics
+# Monitor system resources during download
+watch -n 5 "echo '=== SYSTEM LOAD ==='; top -bn1 | head -5; echo '=== MEMORY ==='; free -h; echo '=== GPU ==='; nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader"
 ```
 
 #### ✅ **Step 2.4: Verify Dataset**
