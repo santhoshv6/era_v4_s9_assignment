@@ -24,6 +24,7 @@ from tqdm import tqdm
 
 from src.model import get_model
 from src.transforms import build_transforms
+from src.mixup import MixupCutmixCollator, mixup_criterion
 from src.utils import (
     AverageMeter, accuracy, seed_everything, save_checkpoint, 
     get_device, format_time, setup_logging
@@ -118,9 +119,22 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
     
     pbar = tqdm(train_loader, desc=f'Epoch {epoch+1:3d}/{args.epochs} ({strategy})')
     
-    for images, targets in pbar:
-        images = images.cuda(non_blocking=True)
-        targets = targets.cuda(non_blocking=True)
+    for batch_data in pbar:
+        # Handle Mixup/CutMix data format
+        if len(batch_data) == 4:  # Mixup/CutMix applied
+            images, targets_a, targets_b, lam = batch_data
+            images = images.cuda(non_blocking=True)
+            targets_a = targets_a.cuda(non_blocking=True)
+            targets_b = targets_b.cuda(non_blocking=True)
+            mixup_active = True
+            # For compatibility with metrics
+            targets = targets_a
+        else:  # Normal batch (no mixup)
+            images, targets = batch_data
+            images = images.cuda(non_blocking=True)
+            targets = targets.cuda(non_blocking=True)
+            targets_a, targets_b, lam = targets, targets, 1.0
+            mixup_active = False
         
         optimizer.zero_grad()
         
@@ -128,10 +142,18 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
         if args.amp:
             with autocast():
                 outputs = model(images)
-                loss = criterion(outputs, targets)
+                # Use appropriate loss calculation for mixup
+                if mixup_active:
+                    loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
+                else:
+                    loss = criterion(outputs, targets)
         else:
             outputs = model(images)
-            loss = criterion(outputs, targets)
+            # Use appropriate loss calculation for mixup
+            if mixup_active:
+                loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
+            else:
+                loss = criterion(outputs, targets)
         
         # Backward pass
         if args.amp and scaler:
@@ -239,6 +261,7 @@ def main():
         shuffle=True,
         num_workers=args.workers,
         pin_memory=True,
+        drop_last=True,
         collate_fn=mixup_collator
     )
     
@@ -247,7 +270,8 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.workers,
-        pin_memory=True
+        pin_memory=True,
+        drop_last=False
     )
     
     logger.info(f"Dataset loaded: {len(train_dataset):,} train, {len(val_dataset):,} val images")
@@ -330,7 +354,7 @@ def main():
         
         # Training
         train_loss, train_acc1 = train_epoch(
-            model, train_loader, mixup_criterion, optimizer, epoch, args,
+            model, train_loader, criterion, optimizer, epoch, args,
             scaler=scaler, ema_model=ema_model, swa_model=swa_model
         )
         
