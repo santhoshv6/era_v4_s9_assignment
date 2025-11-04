@@ -746,6 +746,27 @@ ls -la train.py src/
 # ✅ RUNNING FROM: /home/ubuntu/resent50_training
 # ✅ DATA LOCATION: /mnt/nvme_data/imagenet
 
+# 🧹 RECOMMENDED: Clean up before fresh training
+echo "🧹 Cleaning up previous training artifacts..."
+
+# Backup important previous results (optional)
+if [ -d "./outputs" ] && [ -f "./outputs/best_model.pth" ]; then
+    echo "📦 Backing up previous results..."
+    mkdir -p ./previous_runs
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    mv ./outputs ./previous_runs/outputs_$timestamp
+    mv training.log ./previous_runs/training_$timestamp.log 2>/dev/null || true
+    echo "✅ Previous results backed up to ./previous_runs/"
+fi
+
+# Create fresh directories
+mkdir -p ./outputs ./logs ./checkpoints
+rm -f training.log  # Remove any remaining log file
+
+# Verify cleanup
+echo "✅ Fresh workspace ready for training"
+ls -la ./outputs
+
 # Optimized for g5.2xlarge (A10G GPU - 24GB VRAM)
 python train.py \
   --data /mnt/nvme_data/imagenet \

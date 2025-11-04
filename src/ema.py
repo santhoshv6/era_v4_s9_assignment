@@ -61,8 +61,14 @@ class EMAModel:
         """
         self.num_updates += 1
         
-        # Adjust decay based on number of updates (optional warmup)
-        decay = min(self.decay, (1 + self.num_updates) / (10 + self.num_updates))
+        # More aggressive warmup - use lower decay for first 1000 updates
+        if self.num_updates <= 1000:
+            # Start with much lower decay and gradually increase
+            warmup_decay = min(0.9, self.num_updates / 1000.0 * self.decay)
+            decay = warmup_decay
+        else:
+            # Standard warmup formula after initial period
+            decay = min(self.decay, (1 + self.num_updates) / (10 + self.num_updates))
         
         with torch.no_grad():
             for ema_param, model_param in zip(self.model.parameters(), model.parameters()):

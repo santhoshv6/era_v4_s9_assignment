@@ -58,8 +58,8 @@ def parse_args():
                        help='Use EMA for first N epochs (default: 100)')
     parser.add_argument('--swa-epochs', type=int, default=20,
                        help='Use SWA for last N epochs (default: 20)')
-    parser.add_argument('--ema-decay', type=float, default=0.9999,
-                       help='EMA decay rate (default: 0.9999)')
+    parser.add_argument('--ema-decay', type=float, default=0.999,
+                       help='EMA decay rate (default: 0.999)')
     parser.add_argument('--swa-lr', type=float, default=0.01,
                        help='SWA learning rate (default: 0.01)')
     
@@ -82,6 +82,10 @@ def parse_args():
     # Resume training
     parser.add_argument('--resume', type=str, default='',
                        help='Path to checkpoint to resume from')
+    
+    # Debug mode
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable debug mode with additional logging')
     
     return parser.parse_args()
 
@@ -189,13 +193,13 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
 
 def validate(model, val_loader, criterion, args):
     """Validation"""
-    model.eval()
+    model.eval()  # Ensure model is in eval mode
     losses = AverageMeter('Loss')
     top1 = AverageMeter('Acc@1')
     
     with torch.no_grad():
         pbar = tqdm(val_loader, desc='Validating')
-        for images, targets in pbar:
+        for i, (images, targets) in enumerate(pbar):
             images = images.cuda(non_blocking=True)
             targets = targets.cuda(non_blocking=True)
             
@@ -215,6 +219,13 @@ def validate(model, val_loader, criterion, args):
                 'Loss': f'{losses.avg:.3f}',
                 'Acc': f'{top1.avg:.1f}%'
             })
+            
+            # Debug: Print first batch predictions for verification
+            if i == 0 and args.debug:
+                pred_classes = outputs.argmax(dim=1)[:5]
+                actual_classes = targets[:5]
+                logger.info(f"Sample predictions: {pred_classes.cpu().tolist()}")
+                logger.info(f"Sample targets: {actual_classes.cpu().tolist()}")
     
     return losses.avg, top1.avg
 
@@ -394,17 +405,36 @@ def main():
         logger.info(f'\nEpoch {epoch+1:3d}/{args.epochs} - LR: {current_lr:.6f}')
         
         # Training
+        # Track parameter changes for debugging
+        if args.debug and epoch == 0:
+            pre_train_param = next(model.parameters()).clone().detach()
+            
         train_loss, train_acc1 = train_epoch(
             model, train_loader, criterion, optimizer, epoch, args,
             scaler=scaler, ema_model=ema_model, swa_model=swa_model
         )
         
+        if args.debug and epoch == 0:
+            post_train_param = next(model.parameters()).clone().detach()
+            param_change = torch.norm(post_train_param - pre_train_param).item()
+            logger.info(f"🔧 Parameter change magnitude: {param_change:.6f}")
+            if param_change < 1e-6:
+                logger.warning("⚠️  Very small parameter changes detected - check optimizer/gradients!")
+        
         # Validation with appropriate model
-        if epoch < args.ema_epochs:
-            # Use EMA model
+        # For first few epochs, use main model since EMA hasn't had time to converge
+        # This prevents validation accuracy being stuck at random levels
+        if epoch < 10:  # Use main model for first 10 epochs (EXTENDED WARMUP)
+            val_loss, val_acc1 = validate(model, val_loader, criterion, args)
+            eval_model = model
+            model_type = "Main (EMA warmup)"
+            logger.info(f"🔄 Using main model for validation (EMA warmup period)")
+        elif epoch < args.ema_epochs:
+            # Use EMA model after warmup period
             val_loss, val_acc1 = validate(ema_model.model, val_loader, criterion, args)
             eval_model = ema_model.model
             model_type = "EMA"
+            logger.info(f"📊 EMA updates: {ema_model.num_updates}, decay: {ema_model.decay:.4f}")
         elif epoch >= (args.epochs - args.swa_epochs):
             # Use SWA model
             if epoch == (args.epochs - args.swa_epochs):
