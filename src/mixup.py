@@ -122,7 +122,21 @@ class MixupCutmixCollator:
 
     def __call__(self, batch):
         """Apply Mixup or CutMix to a batch."""
-        x, y = batch
+        # Handle both raw batch (list of samples) and collated batch (tensors)
+        if isinstance(batch, list):
+            # This is a raw batch from the dataset, need to collate first
+            from torch.utils.data.dataloader import default_collate
+            collated = default_collate(batch)
+            x, y = collated
+        else:
+            # This is already a collated batch, handle different formats
+            if isinstance(batch, (tuple, list)):
+                if len(batch) >= 2:
+                    x, y = batch[0], batch[1]
+                else:
+                    raise ValueError(f"Expected batch with at least 2 elements, got {len(batch)}")
+            else:
+                raise ValueError(f"Unexpected batch type: {type(batch)}")
         
         if np.random.rand() < self.prob:
             if np.random.rand() < self.switch_prob:

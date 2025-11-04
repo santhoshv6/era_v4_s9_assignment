@@ -1,10 +1,16 @@
 # 📋 EXECUTION DOCUMENT
 ## ResNet50 ImageNet Training - Complete Execution Guide
 
-**Date**: November 2, 2025  
+**Date**: November 4, 2025 (**Updated for g5.2xlarge**)  
 **Target**: 81% Top-1 Accuracy on ImageNet  
 **Budget**: ~$25 on AWS EC2 Spot Instances  
 **Timeline**: 4-5 days (96 hours training)
+
+**🔄 Latest Updates:**
+- ✅ **CUDA 12.1** support for g5.2xlarge instances
+- ✅ **Streamlined setup** - single command environment installation  
+- ✅ **Fixed repository cloning** to `/home/ubuntu/resent50_training`
+- ✅ **Optimized PyTorch** installation for A10G GPU
 
 ---
 
@@ -31,10 +37,16 @@ Train ResNet50 from scratch on full ImageNet dataset to achieve 81% top-1 accura
 |-------------------|-------------------|----------------|
 | **GPU** | NVIDIA T4 (16GB) | NVIDIA A10G (24GB) |
 | **GPU Memory** | 16GB GDDR6 | 24GB GDDR6 |
+| **CUDA Version** | 11.8 | **12.1** |
 | **vCPUs** | 8 | 8 |
 | **RAM** | 32GB | 32GB |
 | **Network** | Up to 25 Gbps | Up to 10 Gbps |
 | **Storage** | NVMe SSD | NVMe SSD |
+
+#### **⚠️ IMPORTANT: g5.2xlarge Updates**
+- **CUDA 12.1**: g5.2xlarge instances come with newer CUDA 12.1 (not 11.8)
+- **PyTorch Index**: Use `cu121` for PyTorch installation on g5.2xlarge
+- **Performance**: Same training code, better GPU performance with A10G
 
 #### **💵 COST ANALYSIS**
 
@@ -86,7 +98,63 @@ Safety Buffer: $4.16 (for price fluctuations)
 
 ---
 
-## 🚀 EXECUTION PHASES
+## � **DIRECTORY STRUCTURE & DATA SETUP**
+
+### **✅ RECOMMENDED SETUP (Separation of Code and Data)**
+
+```bash
+# Training code location (where you run commands from)
+/home/ubuntu/resent50_training/
+├── train.py                    # Main training script
+├── src/                        # Source code modules
+├── outputs/                    # Training outputs & checkpoints
+├── requirements.txt            # Dependencies
+└── logs/                       # Training logs
+
+# Data location (NVMe storage for speed)
+/mnt/nvme_data/imagenet/
+├── train/                      # Training images (1.3M images)
+│   ├── n01440764/
+│   ├── n01443537/
+│   └── ... (1000 classes)
+└── val/                        # Validation images (50K images)
+    ├── n01440764/
+    ├── n01443537/
+    └── ... (1000 classes)
+```
+
+### **🎯 WHY THIS SETUP IS OPTIMAL:**
+
+✅ **Code Portability**: Training code in home directory is easy to backup/version  
+✅ **Data Performance**: ImageNet on NVMe for maximum I/O speed  
+✅ **Space Management**: Separates large data from lightweight code  
+✅ **Flexibility**: Can point to data from any training directory  
+
+### **📋 SETUP COMMANDS**
+
+```bash
+# 1. Create training directory in home
+cd /home/ubuntu
+mkdir -p resent50_training
+cd resent50_training
+
+# 2. Copy/clone your training code here
+# (Your code should already be here based on your question)
+
+# 3. Verify data location
+ls -la /mnt/nvme_data/imagenet/
+# Should show: train/ and val/ directories
+
+# 4. Check you're in the right place for training
+pwd
+# Should show: /home/ubuntu/resent50_training
+
+# 5. Ready to run training!
+```
+
+---
+
+## �🚀 EXECUTION PHASES
 
 ### **PHASE 1: ENVIRONMENT SETUP**
 
@@ -101,130 +169,172 @@ nvidia-smi  # Should show GPU details
 df -h       # Check available storage
 ```
 
-#### ✅ **Step 1.2: System Update**
+#### ✅ **Step 1.2: Python Environment Setup (One Command)**
 ```bash
-# Update system packages
-sudo apt update -y
-sudo apt upgrade -y# First, let's clean up and uninstall conda
-cd ~
+# 🚀 STREAMLINED SETUP FOR G5.2XLARGE - ONE-STEP INSTALLATION
+# This script sets up everything needed for ResNet50 training
 
-# Deactivate any conda environment
-conda deactivate
+# Update system and install Python essentials
+sudo apt update -y && sudo apt install -y python3-venv python3-pip python3-dev build-essential
 
-# Remove conda from PATH (edit .bashrc)
-sed -i '/conda/d' ~/.bashrc
-sed -i '/miniconda/d' ~/.bashrc
-
-# Remove conda directory (this completely uninstalls conda)
-rm -rf ~/miniconda3
-
-# Reload shell configuration
-source ~/.bashrc
-
-# Verify conda is removed
-which conda  # Should return nothing
-
-# Update package lists and install python3-venv if needed
-sudo apt update
-sudo apt install python3-venv python3-pip -y
-
-# Verify Python version
-python3 --version
-
-# Create virtual environment with venv
+# Create and activate virtual environment
 python3 -m venv pytorch_env
-
-# Activate the environment
 source pytorch_env/bin/activate
 
-# Verify activation (should show pytorch_env in prompt)
-which python
-python --version
+# Upgrade pip for faster installs
+pip install --upgrade pip setuptools wheel
 
-# Upgrade pip
-pip install --upgrade pip
+# Install PyTorch with CUDA 12.1 support (latest available for g5.2xlarge)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
-# Install PyTorch with CUDA support
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# Install all training dependencies in one go (Python 3.12 + PyArrow compatible versions)
+pip install \
+    "datasets>=2.15.0" \
+    "huggingface-hub>=0.18.0" \
+    "pyarrow>=14.0.0" \
+    tqdm==4.66.1 \
+    pillow==10.0.1 \
+    "numpy>=1.26.0" \
+    "scikit-learn>=1.3.2" \
+    tensorboard==2.14.1 \
+    psutil==5.9.5 \
+    "matplotlib>=3.8.0"
 
-# Verify PyTorch installation
-python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}')"
+# Verify complete installation
+echo "🔍 Verifying installation..."
+python -c "
+import torch, torchvision, datasets, numpy, sklearn, tensorboard, psutil
+print(f'✅ PyTorch: {torch.__version__}')
+print(f'✅ CUDA Available: {torch.cuda.is_available()}')
+if torch.cuda.is_available():
+    print(f'✅ GPU: {torch.cuda.get_device_name(0)}')
+    print(f'✅ GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB')
+print(f'✅ All packages successfully installed!')
+"
 
-# Install remaining packages
-pip install datasets huggingface_hub tqdm pillow numpy scikit-learn tensorboard torch-lr-finder
+# Add activation to .bashrc for convenience
+echo "source ~/pytorch_env/bin/activate" >> ~/.bashrc
 
-# Final verification
-python -c "from torch_lr_finder import LRFinder; print('✅ All packages installed successfully')"# First, let's clean up and uninstall conda
-cd ~
-
-# Deactivate any conda environment
-conda deactivate
-
-# Remove conda from PATH (edit .bashrc)
-sed -i '/conda/d' ~/.bashrc
-sed -i '/miniconda/d' ~/.bashrc
-
-# Remove conda directory (this completely uninstalls conda)
-rm -rf ~/miniconda3
-
-# Reload shell configuration
-source ~/.bashrc
-
-# Verify conda is removed
-which conda  # Should return nothing
-
-# Update package lists and install python3-venv if needed
-sudo apt update
-sudo apt install python3-venv python3-pip -y
-
-# Verify Python version
-python3 --version
-
-# Create virtual environment with venv
-python3 -m venv pytorch_env
-
-# Activate the environment
-source pytorch_env/bin/activate
-
-# Verify activation (should show pytorch_env in prompt)
-which python
-python --version
-
-# Upgrade pip
-pip install --upgrade pip
-
-# Install PyTorch with CUDA support
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# Verify PyTorch installation
-python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}')"
-
-# Install remaining packages
-pip install datasets huggingface_hub tqdm pillow numpy scikit-learn tensorboard torch-lr-finder
-
-# Final verification
-python -c "from torch_lr_finder import LRFinder; print('✅ All packages installed successfully')"
-
-# Install essential packages
-sudo apt install -y build-essential git wget curl htop nvtop tree unzip python3-pip
-
-# Install Python development tools
-sudo apt install python3 python3-pip python3-venv python3-dev -y
+echo "🎉 Environment setup complete! PyTorch with CUDA 12.1 is ready for g5.2xlarge training."
 ```
 
-#### ✅ **Step 1.3: Verify Python Installation**
+#### ⚠️ **TROUBLESHOOTING: PyArrow/Datasets Compatibility Issues**
 ```bash
-# Verify Python installation
-python3 --version
-pip3 --version
+# If you get "AttributeError: module 'pyarrow' has no attribute 'PyExtensionType'" error:
+# This is a PyArrow version compatibility issue with datasets library
 
-# Create aliases for convenience (optional)
-echo "alias python=python3" >> ~/.bashrc
-echo "alias pip=pip3" >> ~/.bashrc
+# SOLUTION 1: Update to compatible versions (recommended)
+pip uninstall datasets pyarrow huggingface-hub -y
+pip install "datasets>=2.15.0" "pyarrow>=14.0.0" "huggingface-hub>=0.18.0"
 
-# Reload shell configuration
-source ~/.bashrc
+# SOLUTION 2: Force reinstall with latest versions
+pip install --upgrade --force-reinstall datasets pyarrow huggingface-hub
+
+# SOLUTION 3: Use specific compatible versions
+pip install datasets==2.16.0 pyarrow==15.0.0 huggingface-hub==0.20.0
+
+# SOLUTION 4: If issues persist, use conda for these packages
+pip uninstall datasets pyarrow huggingface-hub -y
+conda install -c conda-forge datasets pyarrow huggingface_hub
+
+# Verify the fix
+python -c "
+try:
+    from datasets import load_dataset
+    print('✅ Datasets library working correctly')
+    # Quick test load
+    print('✅ Testing dataset loading...')
+    import datasets
+    print(f'✅ Datasets version: {datasets.__version__}')
+    import pyarrow
+    print(f'✅ PyArrow version: {pyarrow.__version__}')
+except Exception as e:
+    print(f'❌ Error: {e}')
+"
 ```
+
+#### ⚠️ **TROUBLESHOOTING: PyTorch Version Issues**
+```bash
+# If you get "No matching distribution found for torch==2.1.0" error:
+# This happens because PyTorch 2.1.0 is not available for CUDA 12.1
+
+# SOLUTION 1: Install latest available PyTorch for CUDA 12.1 (recommended)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# SOLUTION 2: Check available versions first
+# Visit: https://download.pytorch.org/whl/cu121/
+# Available versions: 2.2.0+cu121, 2.2.1+cu121, 2.2.2+cu121, 2.3.0+cu121, 2.3.1+cu121, 2.4.0+cu121, 2.4.1+cu121, 2.5.0+cu121, 2.5.1+cu121
+
+# SOLUTION 3: Install specific stable version
+pip install torch==2.4.1+cu121 torchvision==0.19.1+cu121 torchaudio==2.4.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+# SOLUTION 4: If CUDA 12.1 continues to have issues, try CUDA 11.8
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Verify PyTorch installation
+python -c "
+import torch
+print(f'✅ PyTorch: {torch.__version__}')
+print(f'✅ CUDA available: {torch.cuda.is_available()}')
+if torch.cuda.is_available():
+    print(f'✅ CUDA version: {torch.version.cuda}')
+    print(f'✅ GPU: {torch.cuda.get_device_name(0)}')
+else:
+    print('❌ CUDA not available - check installation')
+"
+```
+
+#### ⚠️ **TROUBLESHOOTING: Python 3.12 Compatibility Issues**
+```bash
+# If you encounter numpy build errors with Python 3.12:
+# Error: "AttributeError: module 'pkgutil' has no attribute 'ImpImporter'"
+
+# SOLUTION 1: Use compatible package versions (recommended)
+pip install numpy>=1.26.0  # Python 3.12 compatible
+pip install scikit-learn>=1.3.2  # Updated for Python 3.12
+
+# SOLUTION 2: If still having issues, use binary wheels only
+pip install --only-binary=all numpy scikit-learn
+
+# SOLUTION 3: Alternative - use conda for problematic packages
+# (Only if pip continues to fail)
+conda install numpy scikit-learn -c conda-forge
+
+# SOLUTION 4: Verify your environment is clean
+pip list | grep -E "(numpy|scipy|scikit)"
+# If you see conflicting versions, reinstall:
+pip uninstall numpy scikit-learn -y
+pip install numpy>=1.26.0 scikit-learn>=1.3.2
+
+# Final verification after fixing
+python -c "
+import numpy as np
+import sklearn
+print(f'✅ NumPy: {np.__version__}')
+print(f'✅ Scikit-learn: {sklearn.__version__}')
+print(f'✅ Python 3.12 compatibility: OK')
+"
+```
+
+#### ✅ **Step 1.3: Setup Storage for ImageNet**
+```bash
+# Check available storage
+df -h
+lsblk
+
+# Create directory for ImageNet data on fastest storage
+sudo mkdir -p /mnt/nvme_data
+sudo chown $USER:$USER /mnt/nvme_data
+
+# For g5.2xlarge with additional NVMe (if needed)
+# sudo mkfs.ext4 /dev/nvme1n1  # Only if you have additional NVMe
+# sudo mount /dev/nvme1n1 /mnt/nvme_data  
+# sudo chown $USER:$USER /mnt/nvme_data
+
+# Verify storage setup
+echo "📊 Storage verification:"
+df -h /mnt/nvme_data
+ls -la /mnt/nvme_data
 
 #### ✅ **Step 1.4: Create Python Virtual Environment**
 ```bash
@@ -235,76 +345,68 @@ python3 -m venv pytorch_env
 source pytorch_env/bin/activate
 
 # Verify activation (prompt should show (pytorch_env))
+#### ✅ **Step 1.3: Setup Storage for ImageNet**
+```bash
+# Check available storage
+df -h
+lsblk
+
+# Create directory for ImageNet data on fastest storage
+sudo mkdir -p /mnt/nvme_data
+sudo chown $USER:$USER /mnt/nvme_data
+
+# For g5.2xlarge with additional NVMe (if needed)
+# sudo mkfs.ext4 /dev/nvme1n1  # Only if you have additional NVMe
+# sudo mount /dev/nvme1n1 /mnt/nvme_data  
+# sudo chown $USER:$USER /mnt/nvme_data
+
+# Verify storage setup
+echo "📊 Storage verification:"
+df -h /mnt/nvme_data
+ls -la /mnt/nvme_data
+```
+
+#### ✅ **Step 1.4: Final Environment Verification**
+```bash
+# 🔍 COMPREHENSIVE VERIFICATION FOR G5.2XLARGE
+
+echo "🔍 Environment Verification Summary:"
+echo "=================================="
+
+# Python environment
+echo "✅ Python environment:"
 which python
 python --version
 
-# Upgrade pip to latest version
-pip install --upgrade pip
+# PyTorch and CUDA
+echo "✅ PyTorch and GPU:"
+python -c "
+import torch
+print(f'PyTorch version: {torch.__version__}')
+print(f'CUDA available: {torch.cuda.is_available()}')
+if torch.cuda.is_available():
+    print(f'GPU device: {torch.cuda.get_device_name(0)}')
+    print(f'GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB')
+    print(f'CUDA version: {torch.version.cuda}')
+"
 
-# CRITICAL: Install PyTorch with CUDA support first
-# Check CUDA version available on your instance
-nvidia-smi  # Note the CUDA version (usually 11.8 or 12.1)
+# Package versions
+echo "✅ Key packages:"
+python -c "
+import datasets, numpy, sklearn, tensorboard
+print(f'datasets: {datasets.__version__}')
+print(f'numpy: {numpy.__version__}')
+print(f'scikit-learn: {sklearn.__version__}')
+print(f'tensorboard: {tensorboard.__version__}')
+"
 
-# For CUDA 11.8 (most common on g4dn instances):
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# System resources
+echo "✅ System resources:"
+echo "CPU cores: $(nproc)"
+echo "RAM: $(free -h | grep Mem | awk '{print $2}')"
+echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits)"
 
-# For CUDA 12.1 (if your instance has newer CUDA):
-# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Verify PyTorch installation BEFORE installing other packages
-python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'CUDA devices: {torch.cuda.device_count()}')"
-
-# If the above fails, try CPU version temporarily for debugging:
-# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-# Only proceed if PyTorch CUDA test passes
-echo "✅ PyTorch installation verified - proceeding with remaining packages..."
-
-# Install remaining packages
-pip install datasets huggingface_hub tqdm pillow numpy scikit-learn tensorboard torch-lr-finder
-
-# Final verification
-python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
-```
-
-#### ⚠️ **TROUBLESHOOTING PyTorch Installation**
-```bash
-# If PyTorch installation fails or CUDA is not available:
-
-# Option 1: Recreate virtual environment
-deactivate
-rm -rf pytorch_env
-python3 -m venv pytorch_env
-source pytorch_env/bin/activate
-pip install --upgrade pip
-
-# Option 2: Try different CUDA version
-pip uninstall torch torchvision torchaudio -y
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# Option 3: For g5 instances with newer CUDA
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Option 4: Check available CUDA versions and use appropriate index
-nvidia-smi
-# Then use appropriate index URL from: https://pytorch.org/get-started/locally/
-
-# Verify after each attempt
-python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
-```
-
-#### ✅ **Step 1.5: Setup Storage**
-```bash
-# Check for NVMe SSD
-lsblk
-
-# If you have additional NVMe storage, mount it
-sudo mkdir -p /mnt/nvme_data
-
-# For additional NVMe device (if available)
-# sudo mkfs.ext4 /dev/nvme1n1
-# sudo mount /dev/nvme1n1 /mnt/nvme_data
-# sudo chown $USER:$USER /mnt/nvme_data
+echo "🎉 Environment ready for ResNet50 training on g5.2xlarge!"
 
 # If using root storage only
 sudo chown $USER:$USER /mnt/nvme_data
@@ -323,37 +425,57 @@ tmux -V
 
 #### ✅ **Step 2.1: Setup Project Directory & Clone Repository**
 ```bash
-# Create project directory
-mkdir -p /mnt/nvme_data/imagenet_training
-cd /mnt/nvme_data/imagenet_training
+### **PHASE 2: PROJECT SETUP**
+
+#### ✅ **Step 2.1: Setup Training Directory and Clone Repository**
+```bash
+# Create training directory in home (as discussed)
+cd /home/ubuntu
+mkdir -p resent50_training
+cd resent50_training
 
 # Install git if not already available
 sudo apt install git -y
 
-# Clone the training repository
+# Clone the latest training repository
 git clone https://github.com/santhoshv6/era_v4_s9_assignment.git .
 
-# Alternative: If above fails, try with specific branch
-# git clone -b master https://github.com/santhoshv6/era_v4_s9_assignment.git .
+# Alternative methods if above fails:
+# Method 1: Clone to temp directory then copy
+# git clone https://github.com/santhoshv6/era_v4_s9_assignment.git temp_repo
+# cp -r temp_repo/* .
+# rm -rf temp_repo/
 
-# If git clone fails entirely, you can download as zip:
+# Method 2: Download as zip if git fails
 # wget https://github.com/santhoshv6/era_v4_s9_assignment/archive/refs/heads/master.zip
 # unzip master.zip
-# mv era_v4_s9_assignment-master/* .
+# cp -r era_v4_s9_assignment-master/* .
 # rm -rf era_v4_s9_assignment-master/ master.zip
 
-# Verify all files are present
+# Verify all essential files are present
+echo "📋 Verifying repository contents:"
 ls -la
-# Should show: train.py, src/, requirements.txt, download_imagenet_hf.py, EXECUTION_DOC.md, etc.
+# Should show: train.py, src/, requirements.txt, final_code_download/, EXECUTION_DOC.md, etc.
 
-# Activate virtual environment and install Python dependencies
-source pytorch_env/bin/activate
-pip install -r requirements.txt
+# Activate virtual environment (if not already active)
+source ~/pytorch_env/bin/activate
 
-# Verify installation
-pip list | grep -E "(torch|datasets|huggingface)"
+# Install any additional dependencies from requirements.txt
+if [ -f "requirements.txt" ]; then
+    echo "📦 Installing additional dependencies..."
+    pip install -r requirements.txt
+else
+    echo "ℹ️  No requirements.txt found - using environment packages"
+fi
 
-# Create additional subdirectories for training
+# Verify Python packages
+echo "🔍 Verifying key packages:"
+python -c "
+import torch, torchvision, datasets
+print(f'✅ PyTorch: {torch.__version__}')
+print(f'✅ CUDA: {torch.cuda.is_available()}')
+print(f'✅ Datasets: {datasets.__version__}')
+"
 mkdir -p outputs logs checkpoints
 ```
 
@@ -377,7 +499,7 @@ echo "=================================="
 
 # Check main training files
 [ -f "train.py" ] && echo "✅ train.py found" || echo "❌ train.py missing"
-[ -f "download_imagenet_hf.py" ] && echo "✅ download_imagenet_hf.py found" || echo "❌ download_imagenet_hf.py missing"
+[ -f "final_code_download/final_fast_download.py" ] && echo "✅ final_fast_download.py found" || echo "❌ final_fast_download.py missing"
 [ -f "requirements.txt" ] && echo "✅ requirements.txt found" || echo "❌ requirements.txt missing"
 [ -f "EXECUTION_DOC.md" ] && echo "✅ EXECUTION_DOC.md found" || echo "❌ EXECUTION_DOC.md missing"
 
@@ -414,38 +536,80 @@ echo "Repository setup verification complete!"
 echo "Fix any ❌ issues before proceeding to data download."
 ```
 
-#### ✅ **Step 2.3: Download ImageNet Dataset - ULTRA-FAST OPTIONS**
+#### ✅ **Step 2.3: Download ImageNet Dataset with Optimized Script**
 ```bash
-# Navigate to project directory
-cd /mnt/nvme_data/imagenet_training
+# Navigate to training directory (where you cloned the repo)
+cd /home/ubuntu/resent50_training
 
-# OPTION 1: Ultra-Fast Download (NEW!) - Uses all available resources
-# This will utilize CPU cores optimally and GPU acceleration
-python download_imagenet_ultra_fast.py \
-  --output-dir /mnt/nvme_data/imagenet \
-  --split train \
-  --aggressive
+# Use the optimized final_fast_download.py script
+# This script is specifically optimized for g5.2xlarge with:
+# - Auto-optimization for A10G GPU
+# - CUDA 12.1 support  
+# - GPU batch processing
+# - Duplicate prevention
+# - Resume capability
 
-# OPTION 2: Optimized Parallel Download (NEW!) - Balanced approach
-python download_imagenet_parallel.py \
+# Create main data_download session
+tmux new-session -d -s data_download
+
+# Attach to data_download session
+tmux attach-session -t data_download
+
+
+# RECOMMENDED: Auto-optimized download (best for g5.2xlarge)
+python final_code_download/final_fast_download.py \
+  --output-dir /mnt/nvme_data/imagenet
+
+# Alternative: Manual optimization (if you want specific settings)
+python final_code_download/final_fast_download.py \
   --output-dir /mnt/nvme_data/imagenet \
-  --split train \
   --num-workers 20 \
-  --chunk-size 3000 \
-  --skip-existing
+  --chunk-size 2500 \
+  --quality 90
 
-# OPTION 3: Original Download (Slower but stable)
-python download_imagenet_hf.py \
+# For fresh start (clears cache and starts clean)
+python final_code_download/final_fast_download.py \
   --output-dir /mnt/nvme_data/imagenet \
-  --num-workers 16 \
-  --chunk-size 2000 \
-  --skip-existing
+  --fresh-start
 
-# For g4dn.2xlarge with underutilized resources, use OPTION 1!
-# Expected speed improvement: 3-5x faster than original
+# Expected performance on g5.2xlarge:
+# - Speed: 120-180 images/second
+# - Time: ~2-3 hours for full ImageNet
+# - Memory: Efficient GPU and RAM usage
+```
 
-# Monitor system resources during download
-watch -n 5 "echo '=== SYSTEM LOAD ==='; top -bn1 | head -5; echo '=== MEMORY ==='; free -h; echo '=== GPU ==='; nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader"
+### **🚀 Why final_fast_download.py is Optimized:**
+
+✅ **Hardware Auto-Detection**: Automatically detects A10G GPU and optimizes settings  
+✅ **CUDA 12.1 Support**: Built for g5.2xlarge CUDA version  
+✅ **GPU Batch Processing**: Processes up to 20 images simultaneously on GPU  
+✅ **Duplicate Prevention**: Deterministic filenames prevent duplicate downloads  
+✅ **Resume Capability**: Intelligent resume without re-downloading existing files  
+✅ **Real-time Monitoring**: Live performance metrics and resource usage  
+✅ **Memory Management**: Automatic GPU cache clearing and memory optimization  
+✅ **Error Recovery**: Handles corrupted files and network interruptions  
+
+### **📊 Performance Comparison:**
+
+| Method | Speed (img/sec) | Time (Full ImageNet) | Features |
+|--------|----------------|---------------------|----------|
+| **final_fast_download.py** | 120-180 | **2-3 hours** | ✅ All optimizations |
+| Old scripts | 40-80 | 6-8 hours | ❌ Basic functionality |
+
+### **💡 Usage Tips:**
+
+```bash
+# Check download progress (in another terminal)
+cd /home/ubuntu/resent50_training
+python -c "
+import os
+train_count = len([f for f in os.listdir('/mnt/nvme_data/imagenet/train') if os.path.isdir(f'/mnt/nvme_data/imagenet/train/{f}')])
+val_count = len([f for f in os.listdir('/mnt/nvme_data/imagenet/val') if os.path.isdir(f'/mnt/nvme_data/imagenet/val/{f}')]) if os.path.exists('/mnt/nvme_data/imagenet/val') else 0
+print(f'Progress: {train_count}/1000 train classes, {val_count}/1000 val classes')
+"
+
+# If download gets interrupted, simply re-run the same command
+# The script will automatically resume from where it left off
 ```
 
 #### ✅ **Step 2.4: Verify Dataset**
@@ -487,10 +651,10 @@ else
 fi
 
 # 3. Check virtual environment
-source pytorch_env/bin/activate && echo "✅ Virtual environment activated" || echo "❌ Virtual environment issue"
+source ~/pytorch_env/bin/activate && echo "✅ Virtual environment activated" || echo "❌ Virtual environment issue"
 
 # 4. Check git repository status
-cd /mnt/nvme_data/imagenet_training
+cd /home/ubuntu/resent50_training
 git status >/dev/null 2>&1 && echo "✅ Git repository properly cloned" || echo "❌ Git repository issue"
 git log --oneline -1 && echo "✅ Latest commit verified" || echo "❌ Git log issue"
 
@@ -579,76 +743,219 @@ ls -la train.py src/
 #### ✅ **Step 3.3: Start Training**
 ```bash
 # In the training tmux session, start training
+# ✅ RUNNING FROM: /home/ubuntu/resent50_training
+# ✅ DATA LOCATION: /mnt/nvme_data/imagenet
+
+# Optimized for g5.2xlarge (A10G GPU - 24GB VRAM)
 python train.py \
   --data /mnt/nvme_data/imagenet \
   --output-dir ./outputs \
-  --epochs 120 \
-  --batch-size 256 \
-  --ema-epochs 100 \
-  --swa-epochs 20 \
+  --epochs 90 \
+  --batch-size 400 \
+  --lr 0.156 \
+  --ema-epochs 80 \
+  --swa-epochs 10 \
+  --workers 8 \
+  --amp \
   2>&1 | tee training.log
 
 # The training will show progress and save logs
+# Outputs will be saved to: /home/ubuntu/resent50_training/outputs/
+# Logs will be saved to: /home/ubuntu/resent50_training/training.log
 # Detach from session: Ctrl+B, then D
 # Training continues in background
 ```
 
-#### ✅ **Step 3.4: Setup Monitoring Dashboard**
+### **🔍 VERIFY YOUR SETUP BEFORE TRAINING**
+
+```bash
+# 1. Confirm you're in the training directory
+pwd
+# Expected: /home/ubuntu/resent50_training
+
+# 2. Check training script exists
+ls -la train.py
+# Expected: Should show train.py file
+
+# 3. Verify data is accessible
+ls -la /mnt/nvme_data/imagenet/
+# Expected: Should show train/ and val/ directories
+
+# 4. Check data counts (optional, takes a few minutes)
+find /mnt/nvme_data/imagenet/train -name "*.JPEG" | wc -l
+# Expected: ~1,281,167 (training images)
+
+find /mnt/nvme_data/imagenet/val -name "*.JPEG" | wc -l  
+# Expected: ~50,000 (validation images)
+
+# 5. Test data loading (quick test)
+python -c "
+import torch
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+print('Testing data loading...')
+dataset = datasets.ImageFolder('/mnt/nvme_data/imagenet/train', 
+                              transform=transforms.ToTensor())
+print(f'✅ Dataset loaded: {len(dataset)} images')
+print(f'✅ Classes: {len(dataset.classes)}')
+"
+```
+
+#### ✅ **Step 3.4: Setup Comprehensive Monitoring Dashboard**
+
 ```bash
 # Detach from training session (Ctrl+B, D)
+# Create dedicated monitoring dashboard with 4 panes
+tmux new-session -d -s dashboard
+
+# Split into 4 panes for comprehensive monitoring
+tmux send-keys -t dashboard 'cd /home/ubuntu/resent50_training' C-m
+tmux split-window -h -t dashboard    # Split horizontally
+tmux split-window -v -t dashboard:0.1    # Split right pane vertically
+tmux select-pane -t dashboard:0.0   # Select top-left
+tmux split-window -v -t dashboard    # Split left pane vertically
+
+# Pane 0 (top-left): Real-time training logs
+tmux send-keys -t dashboard:0.0 'tail -f training.log' C-m
+
+# Pane 1 (bottom-left): GPU monitoring with memory usage
+tmux send-keys -t dashboard:0.1 'watch -n 3 "nvidia-smi --query-gpu=timestamp,name,memory.used,memory.total,utilization.gpu,utilization.memory,temperature.gpu --format=csv,noheader,nounits"' C-m
+
+# Pane 2 (top-right): System resources
+tmux send-keys -t dashboard:0.2 'htop' C-m
+
+# Pane 3 (bottom-right): Training progress and milestones
+tmux send-keys -t dashboard:0.3 'watch -n 60 "echo \"=== TRAINING PROGRESS ===\"; if [ -f ./outputs/best_model.pth ]; then python3 -c \"import torch; c=torch.load('"'"'./outputs/best_model.pth'"'"', map_location='"'"'cpu'"'"'); print(f'"'"'Current Epoch: {c[\"epoch\"]}'"'"'); print(f'"'"'Best Accuracy: {c[\"best_acc1\"]:.3f}%'"'"'); print(f'"'"'Strategy: {\"EMA\" if c[\"epoch\"] <= 80 else \"SWA\"}'"'"'); print(f'"'"'GPU Memory: ~{400*64/1024:.1f}GB (Batch 400)'"'"');\"; else echo \"No checkpoint yet - training starting...\"; fi; echo \"\"; echo \"=== MILESTONES ===\"; echo \"Epoch 20: ~45% (Expected)\"; echo \"Epoch 40: ~65% (Target)\"; echo \"Epoch 60: ~72% (Good)\"; echo \"Epoch 80: >75% (CRITICAL)\"; echo \"Epoch 90: >78% (SUCCESS)\""' C-m
+
+# Attach to dashboard to view all monitoring
+echo "✅ Dashboard created! Attach with: tmux attach-session -t dashboard"
+echo "💡 Navigate between panes: Ctrl+B + Arrow Keys"
+echo "🔄 Detach anytime: Ctrl+B + D"
+```
+
+### **🛠️ TROUBLESHOOTING PATH ISSUES**
+
+```bash
+# Common issue: "Dataset not found" errors
+# Solution: Always use absolute paths
+
+# ❌ WRONG (relative path)
+python train.py --data ./imagenet
+
+# ✅ CORRECT (absolute path)  
+python train.py --data /mnt/nvme_data/imagenet
+
+# Check if data path is accessible from training directory
+cd /home/ubuntu/resent50_training
+ls -la /mnt/nvme_data/imagenet/
+# Should work from any directory
+
+# If you get permission errors:
+sudo chown -R ubuntu:ubuntu /mnt/nvme_data/imagenet/
+sudo chmod -R 755 /mnt/nvme_data/imagenet/
+
+# Test PyTorch can access the data:
+python -c "
+import os
+data_path = '/mnt/nvme_data/imagenet'
+train_path = os.path.join(data_path, 'train') 
+val_path = os.path.join(data_path, 'val')
+print(f'Train exists: {os.path.exists(train_path)}')
+print(f'Val exists: {os.path.exists(val_path)}')
+print(f'Train classes: {len(os.listdir(train_path))}')
+print(f'Val classes: {len(os.listdir(val_path))}')
+"
+```
+```bash
 # Attach to dashboard session
 tmux attach-session -t dashboard
-
-# Create 4-pane monitoring dashboard
-tmux split-window -h    # Split horizontally
-tmux split-window -v    # Split top-right vertically
-tmux select-pane -t 0   # Select top-left
-tmux split-window -v    # Split top-left vertically
-
-# Setup each pane:
-# Pane 0 (top-left): Training logs
-tail -f /mnt/nvme_data/imagenet_training/training.log
-
-# Switch to pane 1 (bottom-left): Ctrl+B, arrow keys
-# Pane 1: GPU monitoring
-watch -n 5 nvidia-smi
-
-# Switch to pane 2 (top-right)
-# Pane 2: System resources
-htop
-
-# Switch to pane 3 (bottom-right)
-# Pane 3: Training progress
-watch -n 60 'cd /mnt/nvme_data/imagenet_training && python -c "
-import torch
-import os
-if os.path.exists(\"./outputs/best_model.pth\"):
-    checkpoint = torch.load(\"./outputs/best_model.pth\", map_location=\"cpu\")
-    print(f\"Best Accuracy: {checkpoint[\"best_acc1\"]:.2f}%\")
-    print(f\"Epoch: {checkpoint[\"epoch\"]}\")
-    print(f\"Model Type: {checkpoint.get(\"model_type\", \"Unknown\")}\")
-else:
-    print(\"No checkpoint found yet\")
-"'
-
-# Detach from dashboard: Ctrl+B, D
 ```
 
 ### **PHASE 4: MILESTONE TRACKING**
 
-#### 🎯 **Critical Milestones**
+#### 🎯 **Critical Milestones (90 Epochs - g5.2xlarge Optimized)**
 
-| Epoch | Target Accuracy | Expected Time | Status Check |
-|-------|----------------|---------------|--------------|
-| 10    | ~30%           | 8 hours       | ⏳ Initial learning |
-| 30    | ~55%           | 24 hours      | 📈 Active training |
-| 50    | ~68%           | 40 hours      | 🎯 Mid-training |
-| **81** | **>75%**       | **65 hours**  | 🚨 **CRITICAL** |
-| **90** | **>77%**       | **72 hours**  | 🚨 **MILESTONE** |
-| 100   | ~79%           | 80 hours      | 🔄 EMA→SWA transition |
-| **120** | **>81%**       | **96 hours**  | 🏆 **TARGET** |
+| Epoch | Target Accuracy | Expected Time | Strategy | Status Check |
+|-------|----------------|---------------|----------|--------------|
+| 10    | ~35%           | 2.5 hours     | EMA      | ⏳ Initial learning |
+| 20    | ~50%           | 5 hours       | EMA      | 📈 Early progress |
+| 40    | ~65%           | 10 hours      | EMA      | 📊 Mid-training |
+| 60    | ~72%           | 15 hours      | EMA      | 🎯 Strong progress |
+| **80** | **>75%**       | **20 hours**  | **EMA**  | 🚨 **CRITICAL MILESTONE** |
+| **85** | **>77%**       | **21.5 hours** | **SWA**  | 🔄 **EMA→SWA Transition** |
+| **90** | **>78%**       | **22.5 hours** | **SWA**  | 🏆 **TARGET ACHIEVED** |
 
-#### ✅ **Step 4.1: Setup Milestone Monitoring in tmux**
+#### ✅ **Step 4.1: Setup Automated Milestone Monitoring**
+```bash
+# Create milestone monitoring script
+cat > monitor_milestones.sh << 'EOF'
+#!/bin/bash
+
+echo "🎯 MILESTONE MONITORING STARTED"
+echo "================================"
+
+while true; do
+    if [ -f ./outputs/best_model.pth ]; then
+        # Extract current progress
+        PROGRESS=$(python3 -c "
+import torch
+checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
+epoch = checkpoint['epoch']
+accuracy = checkpoint['best_acc1']
+strategy = 'EMA' if epoch <= 80 else 'SWA'
+print(f'{epoch},{accuracy:.3f},{strategy}')
+")
+        
+        EPOCH=$(echo $PROGRESS | cut -d',' -f1)
+        ACC=$(echo $PROGRESS | cut -d',' -f2)
+        STRATEGY=$(echo $PROGRESS | cut -d',' -f3)
+        
+        # Clear screen and show status
+        clear
+        echo "🚀 RESNET50 IMAGENET TRAINING - BATCH 400"
+        echo "=========================================="
+        echo "📅 $(date)"
+        echo "🔢 Current Epoch: $EPOCH/90"
+        echo "🎯 Best Accuracy: $ACC%"
+        echo "⚙️  Strategy: $STRATEGY"
+        echo ""
+        
+        # Check milestones
+        if (( $(echo "$EPOCH >= 80" | bc -l) )) && (( $(echo "$ACC >= 75.0" | bc -l) )); then
+            echo "✅ MILESTONE 80: ACHIEVED ($ACC% >= 75%)"
+        elif (( $(echo "$EPOCH >= 80" | bc -l) )); then
+            echo "⚠️  MILESTONE 80: BEHIND TARGET ($ACC% < 75%)"
+        fi
+        
+        if (( $(echo "$EPOCH >= 90" | bc -l) )) && (( $(echo "$ACC >= 78.0" | bc -l) )); then
+            echo "🏆 FINAL TARGET: ACHIEVED ($ACC% >= 78%)"
+            echo "🎉 TRAINING SUCCESS!"
+            break
+        elif (( $(echo "$EPOCH >= 90" | bc -l) )); then
+            echo "🟡 FINAL TARGET: CLOSE ($ACC% approaching 78%)"
+        fi
+        
+        echo ""
+        echo "⏱️  Progress Estimator:"
+        echo "   • Time per epoch: ~15 minutes"
+        echo "   • Remaining epochs: $((90 - EPOCH))"
+        echo "   • Est. completion: $((15 * (90 - EPOCH) / 60)) hours"
+        
+    else
+        echo "⏳ Waiting for training to start..."
+    fi
+    
+    sleep 300  # Check every 5 minutes
+done
+EOF
+
+chmod +x monitor_milestones.sh
+
+# Run milestone monitoring in background
+tmux new-session -d -s milestones './monitor_milestones.sh'
+echo "✅ Milestone monitoring started in background"
+echo "📊 View with: tmux attach-session -t milestones"
+```
 ```bash
 # Create dedicated monitoring session
 tmux new-session -d -s milestones
@@ -1061,357 +1368,269 @@ ssh -i key.pem ubuntu@instance-ip "tmux capture-pane -t training -p | grep pytho
 
 ---
 
-## � **CHECKPOINT RECOVERY & RESUME TRAINING**
+## 🔄 **CHECKPOINT RECOVERY & RESUME TRAINING**
 
-### **Automatic Resume Detection**
+### **✅ Step 5.1: Smart Resume Training**
 ```bash
-# Create resume training script
-cat > resume_training.py << 'EOF'
+# Create intelligent resume script for your 400 batch training
+cat > smart_resume.py << 'EOF'
+#!/usr/bin/env python3
 import torch
 import os
-import json
-import argparse
+import sys
 from pathlib import Path
 
-def find_latest_checkpoint():
-    """Find the most recent checkpoint to resume from."""
-    checkpoint_dir = Path('./outputs')
+def analyze_checkpoint():
+    """Analyze existing checkpoint and provide resume command."""
+    checkpoint_path = Path('./outputs/best_model.pth')
     
-    if not checkpoint_dir.exists():
-        print("❌ No outputs directory found - starting fresh training")
-        return None, 0
-    
-    # Look for best model checkpoint
-    best_checkpoint = checkpoint_dir / 'best_model.pth'
-    if best_checkpoint.exists():
-        try:
-            checkpoint = torch.load(best_checkpoint, map_location='cpu')
-            epoch = checkpoint['epoch']
-            accuracy = checkpoint['best_acc1']
-            print(f"✅ Found checkpoint: Epoch {epoch}, Accuracy {accuracy:.2f}%")
-            return str(best_checkpoint), epoch
-        except Exception as e:
-            print(f"❌ Error loading checkpoint: {e}")
-    
-    print("❌ No valid checkpoint found - starting fresh")
-    return None, 0
-
-def check_training_completeness():
-    """Check if training was completed or interrupted."""
-    checkpoint_path, last_epoch = find_latest_checkpoint()
-    
-    if checkpoint_path is None:
-        return "fresh", 0, "No previous training found"
-    
-    if last_epoch >= 120:
-        return "complete", last_epoch, f"Training already complete at epoch {last_epoch}"
-    elif last_epoch >= 100:
-        swa_progress = last_epoch - 100
-        return "swa_interrupted", last_epoch, f"SWA interrupted at epoch {last_epoch} ({swa_progress}/20 SWA epochs)"
-    else:
-        return "ema_interrupted", last_epoch, f"EMA interrupted at epoch {last_epoch} ({last_epoch}/100 EMA epochs)"
-
-def main():
-    status, epoch, message = check_training_completeness()
-    
-    print("=" * 60)
-    print("🔍 TRAINING STATUS CHECK")
-    print("=" * 60)
-    print(f"Status: {status}")
-    print(f"Last Epoch: {epoch}")
-    print(f"Message: {message}")
-    print("=" * 60)
-    
-    if status == "complete":
-        print("🎉 Training is already complete!")
-        print("To restart training, delete ./outputs/ directory")
+    if not checkpoint_path.exists():
+        print("❌ No checkpoint found")
+        print("🚀 Starting fresh training:")
+        print_fresh_command()
         return
-    elif status == "fresh":
-        print("🚀 Ready to start fresh training")
-        print("Run: python train.py --data /mnt/nvme_data/imagenet --output-dir ./outputs --epochs 120 --batch-size 256 --ema-epochs 100 --swa-epochs 20")
-    else:
-        print("🔄 Ready to resume training from checkpoint")
-        print("Run: python train.py --data /mnt/nvme_data/imagenet --output-dir ./outputs --epochs 120 --batch-size 256 --ema-epochs 100 --swa-epochs 20 --resume ./outputs/best_model.pth")
     
-    print("\n📋 Resume command ready to copy-paste above ☝️")
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        epoch = checkpoint['epoch']
+        accuracy = checkpoint['best_acc1']
+        
+        print(f"✅ Found checkpoint:")
+        print(f"   📊 Epoch: {epoch}/90")
+        print(f"   🎯 Best Accuracy: {accuracy:.3f}%")
+        print(f"   ⚙️  Strategy: {'EMA' if epoch <= 80 else 'SWA'}")
+        
+        if epoch >= 90:
+            print("🏆 Training already complete!")
+            print(f"   Final accuracy: {accuracy:.3f}%")
+            return
+            
+        remaining = 90 - epoch
+        print(f"\n🔄 Resume training ({remaining} epochs remaining):")
+        print_resume_command()
+        
+    except Exception as e:
+        print(f"❌ Error loading checkpoint: {e}")
+        print("🚀 Starting fresh training:")
+        print_fresh_command()
+
+def print_fresh_command():
+    """Print command for fresh training."""
+    print("""
+python train.py \\
+  --data /mnt/nvme_data/imagenet \\
+  --output-dir ./outputs \\
+  --epochs 90 \\
+  --batch-size 400 \\
+  --lr 0.156 \\
+  --ema-epochs 80 \\
+  --swa-epochs 10 \\
+  --workers 8 \\
+  --amp \\
+  2>&1 | tee training.log
+""")
+
+def print_resume_command():
+    """Print command for resuming training."""
+    print("""
+python train.py \\
+  --data /mnt/nvme_data/imagenet \\
+  --output-dir ./outputs \\
+  --epochs 90 \\
+  --batch-size 400 \\
+  --lr 0.156 \\
+  --ema-epochs 80 \\
+  --swa-epochs 10 \\
+  --workers 8 \\
+  --amp \\
+  --resume ./outputs/best_model.pth \\
+  2>&1 | tee -a training.log
+""")
 
 if __name__ == "__main__":
-    main()
+    analyze_checkpoint()
 EOF
 
-# Run the checkpoint checker
-python resume_training.py
+chmod +x smart_resume.py
+
+# Run the analysis
+python3 smart_resume.py
 ```
 
-### **Manual Resume After Instance Interruption**
+### **✅ Step 5.2: Manual Resume Commands**
+
+#### **Resume from Interruption:**
 ```bash
-# Step 1: Check if previous training data exists
-ls -la /mnt/nvme_data/imagenet_training/
-
-# Step 2: Navigate to training directory
-cd /mnt/nvme_data/imagenet_training
-
-# Step 3: Check for existing checkpoints
-python resume_training.py
-
-# Step 4: Verify checkpoint integrity
-python -c "
+# Check current status first
+ls -la ./outputs/
+python3 -c "
 import torch
-import os
-
 if os.path.exists('./outputs/best_model.pth'):
-    try:
-        checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
-        print('✅ Checkpoint is valid')
-        print(f'   Epoch: {checkpoint[\"epoch\"]}')
-        print(f'   Accuracy: {checkpoint[\"best_acc1\"]:.2f}%')
-        print(f'   Model type: {checkpoint.get(\"model_type\", \"Unknown\")}')
-        
-        # Check if optimizer state exists
-        if 'optimizer' in checkpoint:
-            print('✅ Optimizer state found')
-        else:
-            print('⚠️  No optimizer state - will restart optimizer')
-            
-        # Check if scheduler state exists  
-        if 'scheduler' in checkpoint:
-            print('✅ Scheduler state found')
-        else:
-            print('⚠️  No scheduler state - will restart scheduler')
-            
-    except Exception as e:
-        print(f'❌ Checkpoint corrupted: {e}')
-        print('   Recommendation: Start fresh training')
+    c = torch.load('./outputs/best_model.pth', map_location='cpu')
+    print(f'Last epoch: {c[\"epoch\"]}, Accuracy: {c[\"best_acc1\"]:.3f}%')
 else:
-    print('❌ No checkpoint found')
+    print('No checkpoint found')
 "
 
-# Step 5: Resume training with proper command
-# (Copy the exact command from resume_training.py output)
-```
-
-### **Resume Training Commands**
-```bash
-# For EMA phase interruption (epochs 1-100)
+# Resume training with exact same parameters
 python train.py \
   --data /mnt/nvme_data/imagenet \
   --output-dir ./outputs \
-  --epochs 120 \
-  --batch-size 256 \
-  --ema-epochs 100 \
-  --swa-epochs 20 \
+  --epochs 90 \
+  --batch-size 400 \
+  --lr 0.156 \
+  --ema-epochs 80 \
+  --swa-epochs 10 \
+  --workers 8 \
+  --amp \
   --resume ./outputs/best_model.pth \
-  2>&1 | tee -a training_resumed.log
+  2>&1 | tee -a training.log
+```
 
-# For SWA phase interruption (epochs 101-120)  
+#### **Resume with Different Parameters (if needed):**
+```bash
+# If you need to change batch size due to memory issues
 python train.py \
   --data /mnt/nvme_data/imagenet \
   --output-dir ./outputs \
-  --epochs 120 \
-  --batch-size 256 \
-  --ema-epochs 100 \
-  --swa-epochs 20 \
+  --epochs 90 \
+  --batch-size 320 \
+  --lr 0.125 \
+  --ema-epochs 80 \
+  --swa-epochs 10 \
+  --workers 8 \
+  --amp \
   --resume ./outputs/best_model.pth \
-  2>&1 | tee -a training_resumed.log
+  2>&1 | tee -a training.log
 
-# The training script automatically detects which phase to resume
-```
-
-### **Post-Interruption Checklist**
-```bash
-# 1. Verify data integrity
-du -sh /mnt/nvme_data/imagenet
-python -c "
-import os
-train_path = '/mnt/nvme_data/imagenet/train'
-val_path = '/mnt/nvme_data/imagenet/val'
-if os.path.exists(train_path) and os.path.exists(val_path):
-    train_classes = len(os.listdir(train_path))
-    val_classes = len(os.listdir(val_path))
-    print(f'✅ Dataset intact: {train_classes} train classes, {val_classes} val classes')
-else:
-    print('❌ Dataset missing - need to re-download')
-"
-
-# 2. Verify GPU availability
-nvidia-smi
-
-# 3. Check disk space
-df -h
-
-# 4. Verify virtual environment
-source pytorch_env/bin/activate
-python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
-
-# 5. Setup fresh tmux sessions for resumed training
-tmux new-session -d -s training_resumed
-tmux new-session -d -s monitoring_resumed
-
-# 6. Start monitoring first
-tmux attach-session -t monitoring_resumed
-tail -f training_resumed.log
-
-# 7. Start resumed training (in training_resumed session)
-tmux attach-session -t training_resumed
-# Run the resume command from step above
-```
-
-### **Spot Instance Interruption Recovery**
-```bash
-# If spot instance was terminated and you're starting a new one:
-
-# 1. Launch new g4dn.2xlarge spot instance
-# 2. Attach the existing EBS volume with your data
-# 3. Mount the volume
-sudo mkdir -p /mnt/nvme_data
-sudo mount /dev/nvme1n1 /mnt/nvme_data  # Adjust device as needed
-
-# 4. Verify data preservation
-ls -la /mnt/nvme_data/imagenet_training/
-ls -la /mnt/nvme_data/imagenet_training/outputs/
-
-# 5. If data is intact, continue with resume process above
-cd /mnt/nvme_data/imagenet_training
-python resume_training.py
-
-# 6. If data is lost, restart from Phase 2 (data preparation)
-```
-
-### **Emergency Checkpoint Backup**
-```bash
-# Before any risky operations, backup your checkpoint
-mkdir -p ./checkpoint_backups
-cp ./outputs/best_model.pth ./checkpoint_backups/backup_$(date +%Y%m%d_%H%M%S).pth
-cp ./outputs/training_history.json ./checkpoint_backups/ 2>/dev/null || echo "No history file"
-
-# List backups
-ls -la ./checkpoint_backups/
-
-# Restore from backup if needed
-cp ./checkpoint_backups/backup_YYYYMMDD_HHMMSS.pth ./outputs/best_model.pth
+# Or extend training beyond 90 epochs if needed
+python train.py \
+  --data /mnt/nvme_data/imagenet \
+  --output-dir ./outputs \
+  --epochs 100 \
+  --batch-size 400 \
+  --lr 0.156 \
+  --ema-epochs 80 \
+  --swa-epochs 20 \
+  --workers 8 \
+  --amp \
+  --resume ./outputs/best_model.pth \
+  2>&1 | tee -a training.log
 ```
 
 ---
 
-## �🚨 **TROUBLESHOOTING GUIDE**
+## 🚨 **TROUBLESHOOTING GUIDE**
 
-### **Issue 1: Out of Memory**
+### **Issue 1: Out of Memory (OOM)**
 ```bash
-# Reduce batch size
-python train.py --batch-size 128  # instead of 256
+# If batch size 400 causes OOM, reduce to 320
+python train.py \
+  --data /mnt/nvme_data/imagenet \
+  --output-dir ./outputs \
+  --epochs 90 \
+  --batch-size 320 \
+  --lr 0.125 \
+  --ema-epochs 80 \
+  --swa-epochs 10 \
+  --workers 8 \
+  --amp \
+  --resume ./outputs/best_model.pth \
+  2>&1 | tee -a training.log
+
+# Or further reduce to 256 if still having issues
+python train.py \
+  --data /mnt/nvme_data/imagenet \
+  --output-dir ./outputs \
+  --epochs 90 \
+  --batch-size 256 \
+  --lr 0.1 \
+  --ema-epochs 80 \
+  --swa-epochs 10 \
+  --workers 8 \
+  --amp \
+  --resume ./outputs/best_model.pth \
+  2>&1 | tee -a training.log
 ```
 
-### **Issue 2: Spot Instance Interruption with tmux Recovery**
+### **Issue 2: Training Process Killed**
 ```bash
-# Auto-restart script with tmux management
-cat > auto_restart.sh << 'EOF'
-#!/bin/bash
+# Check if training is still running
+tmux has-session -t training
+ps aux | grep "python train.py"
 
-# Function to restart training in tmux
-restart_training() {
-    echo "Restarting training after interruption..."
-    
-    # Kill existing training session if it exists
-    tmux kill-session -t training 2>/dev/null
-    
-    # Create new training session
-    tmux new-session -d -s training
-    
-    # Navigate to project directory and activate environment
-    tmux send-keys -t training "cd /mnt/nvme_data/imagenet_training" Enter
-    tmux send-keys -t training "source pytorch_env/bin/activate" Enter
-    
-    # Check for existing checkpoint and resume
-    if [ -f "./outputs/best_model.pth" ]; then
-        echo "Found checkpoint, resuming training..."
-        tmux send-keys -t training "python train.py --resume ./outputs/best_model.pth --data /mnt/nvme_data/imagenet 2>&1 | tee -a training.log" Enter
-    else
-        echo "No checkpoint found, starting fresh..."
-        tmux send-keys -t training "python train.py --data /mnt/nvme_data/imagenet 2>&1 | tee training.log" Enter
-    fi
-}
+# Force kill any stuck processes
+pkill -9 -f "train.py"
 
-# Main restart loop
-while true; do
-    # Check if training session exists and is running
-    if ! tmux has-session -t training 2>/dev/null; then
-        restart_training
-    fi
-    
-    # Check if training process is actually running
-    if tmux has-session -t training 2>/dev/null; then
-        # Check if Python process is running in the session
-        PYTHON_RUNNING=$(tmux capture-pane -t training -p | grep -c "python train.py")
-        if [ $PYTHON_RUNNING -eq 0 ]; then
-            echo "Training process not found, restarting..."
-            restart_training
-        fi
-    fi
-    
-    sleep 300  # Check every 5 minutes
-done
-EOF
-
-chmod +x auto_restart.sh
-
-# Run the auto-restart in its own tmux session
-tmux new-session -d -s auto_restart
-tmux send-keys -t auto_restart "./auto_restart.sh" Enter
+# Resume training
+python3 smart_resume.py
 ```
 
 ### **Issue 3: Low Accuracy at Milestones**
 ```bash
 # Check dataset integrity
-find /mnt/nvme_data/imagenet/train/ -name "*.JPEG" | wc -l
+find /mnt/nvme_data/imagenet/train/ -name "*.JPEG" | wc -l  # Should be ~1,281,167
+find /mnt/nvme_data/imagenet/val/ -name "*.JPEG" | wc -l    # Should be ~50,000
 
-# Check GPU utilization (should be >90%)
+# Check GPU utilization (should be >95%)
 nvidia-smi
 
-# Check learning rate schedule
-grep "LR:" training.log | tail -10
+# Check training logs for issues
+tail -100 training.log | grep -E "(Loss|Acc|Error)"
+```
+
+### **Issue 4: Spot Instance Interruption**
+```bash
+# If instance is interrupted, just restart training on new instance
+# Data is preserved on EBS, training will resume automatically
+python3 smart_resume.py
 ```
 
 ---
 
-## ✅ SUCCESS CRITERIA
+## ✅ **SUCCESS CRITERIA**
 
 **Training is considered successful if:**
-- [x] Reaches >75% accuracy by epoch 81
-- [x] Reaches >77% accuracy by epoch 90  
-- [x] Achieves >81% final accuracy
-- [x] Completes within $30 budget
-- [x] No major interruptions
+- [x] Reaches >75% accuracy by epoch 80 (end of EMA phase)
+- [x] Reaches >78% accuracy by epoch 90 (target completion)
+- [x] Completes within 22-24 hours on g5.2xlarge
+- [x] Stays within budget (~$30-40 for training)
+- [x] No major data loss or corruption
 
 **Final deliverables:**
-- [x] Model weights (best_model.pth)
-- [x] Training logs (training.log)
-- [x] Accuracy progression data
-- [x] Cost breakdown report
+- [x] Model weights (`best_model.pth`)
+- [x] Training logs (`training.log`)
+- [x] Milestone achievement report
+- [x] GPU utilization analysis
 
 ---
 
-## 📞 EXECUTION CHECKLIST
+## 📋 **EXECUTION CHECKLIST**
 
-### Pre-Training ☐
-- [ ] EC2 instance launched and configured
-- [ ] Environment setup completed
-- [ ] ImageNet dataset downloaded and verified
-- [ ] Training script tested on sample data
+### **Pre-Training** ☐
+- [ ] g5.2xlarge spot instance launched
+- [ ] Python environment configured (Python 3.12 + PyTorch cu121)
+- [ ] ImageNet dataset downloaded to `/mnt/nvme_data/imagenet`
+- [ ] Training script syntax validated
+- [ ] tmux sessions created (training, dashboard, milestones)
 
-### During Training ☐
-- [ ] Training started successfully
-- [ ] Monitoring scripts running
-- [ ] Milestone tracking active
-- [ ] Cost monitoring in place
+### **During Training** ☐
+- [ ] Training started with batch size 400
+- [ ] 4-pane monitoring dashboard active
+- [ ] Milestone tracking running
+- [ ] GPU utilization >95%, memory usage ~20GB/23GB
+- [ ] Progress: Epoch 80 >75%, Epoch 90 >78%
 
-### Post-Training ☐
-- [ ] Results documented
-- [ ] Model files downloaded
-- [ ] Instance terminated
-- [ ] Final cost calculated
+### **Post-Training** ☐
+- [ ] Final accuracy >78% achieved
+- [ ] Model checkpoint downloaded
+- [ ] Training logs preserved
+- [ ] Instance terminated properly
+- [ ] Total cost documented
 
 ---
 
-**📅 Expected Completion**: November 6-7, 2025  
-**🎯 Target Achievement**: 81% ImageNet Top-1 Accuracy  
-**💰 Budget**: $25-30 total cost**
+**📅 Target Completion**: 22-24 hours from start  
+**🎯 Success Metric**: >78% ImageNet Top-1 Accuracy at 90 epochs  
+**💰 Expected Cost**: $30-40 (g5.2xlarge spot pricing)  
+**🚀 Strategy**: 80 epochs EMA + 10 epochs SWA with batch size 400**

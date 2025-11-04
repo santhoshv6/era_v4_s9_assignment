@@ -652,7 +652,7 @@ MANUAL TUNING (Advanced users):
 AVOID THESE SETTINGS:
     --num-workers 32     # Too many workers cause overhead
     --chunk-size 4000+   # May cause GPU OOM
-    --verify             # Reduces speed by ~25%
+    --verify             # Reduces speed by about 25 percent
     --quality 95+        # Minimal quality gain, significant speed loss
 
 SPEED COMPARISON:
@@ -666,7 +666,7 @@ SPEED COMPARISON:
     parser.add_argument('--num-workers', type=int, default=None, help='Number of parallel workers (auto-detected if not specified)')
     parser.add_argument('--chunk-size', type=int, default=None, help='Batch size for processing (auto-optimized if not specified)')
     parser.add_argument('--quality', type=int, default=90, help='JPEG quality (1-100, 90 for speed/quality balance)')
-    parser.add_argument('--verify', action='store_true', help='Verify saved images (reduces speed by ~25%)')
+    parser.add_argument('--verify', action='store_true', help='Verify saved images (reduces speed by about 25 percent)')
     parser.add_argument('--resume', action='store_true', default=True, help='Resume download (default: True)')
     parser.add_argument('--fresh-start', action='store_true', help='Force fresh start (clears cache)')
     parser.add_argument('--deduplicate', action='store_true', help='Remove duplicate files before starting')
