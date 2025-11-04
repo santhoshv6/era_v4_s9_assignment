@@ -29,7 +29,6 @@ from src.utils import (
     AverageMeter, accuracy, seed_everything, save_checkpoint, 
     get_device, format_time, setup_logging
 )
-from src.mixup import MixupCutmixCollator, mixup_criterion
 from src.ema import EMAModel
 
 
@@ -158,10 +157,15 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
         # Backward pass
         if args.amp and scaler:
             scaler.scale(loss).backward()
+            # Gradient clipping for stability
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
         else:
             loss.backward()
+            # Gradient clipping for stability
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
         
         # Update models
@@ -217,6 +221,13 @@ def validate(model, val_loader, criterion, args):
 
 def main():
     args = parse_args()
+    
+    # Parameter validation
+    assert args.ema_epochs + args.swa_epochs <= args.epochs, \
+        f"EMA epochs ({args.ema_epochs}) + SWA epochs ({args.swa_epochs}) must be <= total epochs ({args.epochs})"
+    assert args.batch_size > 0, "Batch size must be positive"
+    assert args.lr > 0, "Learning rate must be positive"
+    assert os.path.exists(args.data), f"Data directory does not exist: {args.data}"
     
     # Setup
     seed_everything(args.seed)
@@ -302,38 +313,68 @@ def main():
     
     if args.resume:
         if os.path.isfile(args.resume):
-            logger.info(f"Loading checkpoint '{args.resume}'")
-            checkpoint = torch.load(args.resume, map_location='cpu')
+            try:
+                logger.info(f"Loading checkpoint '{args.resume}'")
+                checkpoint = torch.load(args.resume, map_location='cpu')
+                
+                # Validate checkpoint structure
+                required_keys = ['epoch', 'model', 'optimizer', 'best_acc1']
+                missing_keys = [key for key in required_keys if key not in checkpoint]
+                if missing_keys:
+                    logger.warning(f"Checkpoint missing keys: {missing_keys}")
+                    logger.info("🚀 Starting fresh training instead")
+                else:
+                    # Load model state
+                    model.load_state_dict(checkpoint['model'])
+                    
+                    # Load training state
+                    start_epoch = checkpoint['epoch'] + 1
+                    best_acc1 = checkpoint['best_acc1']
+                    optimizer.load_state_dict(checkpoint['optimizer'])
+                    
+                    # Validate resumed values
+                    if torch.isnan(torch.tensor(best_acc1)) or best_acc1 < 0:
+                        logger.warning(f"Invalid best_acc1 in checkpoint: {best_acc1}")
+                        best_acc1 = 0.0
+                    
+                    # Load EMA state if available
+                    if 'ema_model' in checkpoint and ema_model:
+                        ema_model.load_state_dict(checkpoint['ema_model'])
+                        logger.info("✅ EMA model state restored")
+                    
+                    # Load SWA state if available
+                    if 'swa_model' in checkpoint and swa_model:
+                        swa_model.load_state_dict(checkpoint['swa_model'])
+                        logger.info("✅ SWA model state restored")
+                    
+                    # Load scheduler state (regular scheduler)
+                    if 'scheduler' in checkpoint:
+                        scheduler.load_state_dict(checkpoint['scheduler'])
+                        logger.info("✅ Scheduler state restored")
+                    
+                    # Load SWA scheduler state if in SWA phase
+                    if 'swa_scheduler' in checkpoint and start_epoch >= (args.epochs - args.swa_epochs):
+                        swa_scheduler.load_state_dict(checkpoint['swa_scheduler'])
+                        logger.info("✅ SWA scheduler state restored")
+                    
+                    # Load scaler state
+                    if 'scaler' in checkpoint and scaler:
+                        scaler.load_state_dict(checkpoint['scaler'])
+                        logger.info("✅ Mixed precision scaler restored")
+                    
+                    logger.info(f"✅ Resumed from epoch {start_epoch}, best accuracy: {best_acc1:.2f}%")
+                    logger.info(f"📊 Resuming in {'EMA' if start_epoch < args.ema_epochs else 'SWA' if start_epoch >= (args.epochs - args.swa_epochs) else 'Base'} phase")
             
-            # Load model state
-            model.load_state_dict(checkpoint['model'])
-            
-            # Load training state
-            start_epoch = checkpoint['epoch'] + 1
-            best_acc1 = checkpoint['best_acc1']
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            
-            # Load EMA state if available
-            if 'ema_model' in checkpoint and ema_model:
-                ema_model.load_state_dict(checkpoint['ema_model'])
-                logger.info("EMA model state restored")
-            
-            # Load SWA state if available
-            if 'swa_model' in checkpoint and swa_model:
-                swa_model.load_state_dict(checkpoint['swa_model'])
-                logger.info("SWA model state restored")
-            
-            # Load scheduler state
-            if 'scheduler' in checkpoint:
-                scheduler.load_state_dict(checkpoint['scheduler'])
-            
-            # Load scaler state
-            if 'scaler' in checkpoint and scaler:
-                scaler.load_state_dict(checkpoint['scaler'])
-            
-            logger.info(f"Resumed from epoch {start_epoch-1}, best accuracy: {best_acc1:.2f}%")
+            except Exception as e:
+                logger.error(f"❌ Failed to load checkpoint: {e}")
+                logger.info("🚀 Starting fresh training instead")
+                start_epoch = 0
+                best_acc1 = 0.0
         else:
-            logger.warning(f"No checkpoint found at '{args.resume}'")
+            logger.warning(f"❌ No checkpoint found at '{args.resume}'")
+            logger.info("🚀 Starting fresh training instead")
+    else:
+        logger.info("🚀 Starting fresh training")
     
     # Training loop
     start_time = time.time()
@@ -384,39 +425,51 @@ def main():
         logger.info(f'Val:   {val_loss:.3f} loss, {val_acc1:.2f}% acc ({model_type})')
         logger.info(f'Best:  {max(best_acc1, val_acc1):.2f}% | Elapsed: {format_time(elapsed)}')
         
-        # Save best model
+        # Prepare checkpoint with all necessary states (for both regular and best saves)
+        checkpoint_state = {
+            'epoch': epoch,
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
+            'best_acc1': best_acc1,
+            'model_type': model_type,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+            'val_acc1': val_acc1
+        }
+        
+        # Add EMA state if available
+        if ema_model:
+            checkpoint_state['ema_model'] = ema_model.state_dict()
+        
+        # Add SWA state if available
+        if swa_model and epoch >= (args.epochs - args.swa_epochs):
+            checkpoint_state['swa_model'] = swa_model.state_dict()
+            checkpoint_state['swa_scheduler'] = swa_scheduler.state_dict()
+        
+        # Add scaler state if using mixed precision
+        if scaler:
+            checkpoint_state['scaler'] = scaler.state_dict()
+        
+        # Save checkpoint every epoch (for crash recovery)
+        save_checkpoint(checkpoint_state, False, str(output_dir), 'latest.pth')
+        
+        # Save numbered checkpoint every 10 epochs
+        if (epoch + 1) % 10 == 0:
+            save_checkpoint(checkpoint_state, False, str(output_dir), f'checkpoint_epoch_{epoch+1}.pth')
+        
+        # Save best model when accuracy improves
         if val_acc1 > best_acc1:
             best_acc1 = val_acc1
-            
-            # Prepare checkpoint with all necessary states
-            checkpoint_state = {
-                'epoch': epoch,
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler.state_dict(),
-                'best_acc1': best_acc1,
-                'model_type': model_type
-            }
-            
-            # Add EMA state if available
-            if ema_model:
-                checkpoint_state['ema_model'] = ema_model.state_dict()
-            
-            # Add SWA state if available
-            if swa_model and epoch >= (args.epochs - args.swa_epochs):
-                checkpoint_state['swa_model'] = swa_model.state_dict()
-            
-            # Add scaler state if using mixed precision
-            if scaler:
-                checkpoint_state['scaler'] = scaler.state_dict()
-            
+            checkpoint_state['best_acc1'] = best_acc1  # Update best accuracy in checkpoint
             save_checkpoint(checkpoint_state, True, str(output_dir), 'best_model.pth')
+            logger.info(f'💾 New best model saved: {val_acc1:.2f}%')
         
-        # Milestone checks
-        if epoch == 80:  # 81st epoch
-            logger.info(f'🎯 Milestone: Epoch 81 = {val_acc1:.2f}% (target: >75%)')
-        if epoch == 89:  # 90th epoch  
-            logger.info(f'🎯 Milestone: Epoch 90 = {val_acc1:.2f}% (target: >77%)')
+        # Milestone checks (0-indexed epochs)
+        if epoch == 79:  # This is epoch 80 (EMA phase end)
+            logger.info(f'🎯 Milestone: Epoch 80 = {val_acc1:.2f}% (target: >75%)')
+        if epoch == 89:  # This is epoch 90 (training end)
+            logger.info(f'🎯 Milestone: Epoch 90 = {val_acc1:.2f}% (target: >78%)')
     
     # Final results
     total_time = time.time() - start_time

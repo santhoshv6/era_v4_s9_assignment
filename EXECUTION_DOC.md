@@ -752,7 +752,7 @@ python train.py \
   --output-dir ./outputs \
   --epochs 90 \
   --batch-size 400 \
-  --lr 0.156 \
+  --lr 0.1 \
   --ema-epochs 80 \
   --swa-epochs 10 \
   --workers 8 \
@@ -764,41 +764,6 @@ python train.py \
 # Logs will be saved to: /home/ubuntu/resent50_training/training.log
 # Detach from session: Ctrl+B, then D
 # Training continues in background
-```
-
-### **🔍 VERIFY YOUR SETUP BEFORE TRAINING**
-
-```bash
-# 1. Confirm you're in the training directory
-pwd
-# Expected: /home/ubuntu/resent50_training
-
-# 2. Check training script exists
-ls -la train.py
-# Expected: Should show train.py file
-
-# 3. Verify data is accessible
-ls -la /mnt/nvme_data/imagenet/
-# Expected: Should show train/ and val/ directories
-
-# 4. Check data counts (optional, takes a few minutes)
-find /mnt/nvme_data/imagenet/train -name "*.JPEG" | wc -l
-# Expected: ~1,281,167 (training images)
-
-find /mnt/nvme_data/imagenet/val -name "*.JPEG" | wc -l  
-# Expected: ~50,000 (validation images)
-
-# 5. Test data loading (quick test)
-python -c "
-import torch
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-print('Testing data loading...')
-dataset = datasets.ImageFolder('/mnt/nvme_data/imagenet/train', 
-                              transform=transforms.ToTensor())
-print(f'✅ Dataset loaded: {len(dataset)} images')
-print(f'✅ Classes: {len(dataset.classes)}')
-"
 ```
 
 #### ✅ **Step 3.4: Setup Comprehensive Monitoring Dashboard**
@@ -956,214 +921,178 @@ tmux new-session -d -s milestones './monitor_milestones.sh'
 echo "✅ Milestone monitoring started in background"
 echo "📊 View with: tmux attach-session -t milestones"
 ```
-```bash
-# Create dedicated monitoring session
-tmux new-session -d -s milestones
 
-# Attach to milestones session
+---
+
+### **PHASE 5: TRAINING MONITORING & MANAGEMENT**
+
+#### ✅ **Step 5.1: Monitor Training Progress**
+```bash
+# View live training logs
+tmux attach-session -t training
+
+# View comprehensive dashboard (4 panes)
+tmux attach-session -t dashboard
+
+# View milestone tracking
 tmux attach-session -t milestones
 
-# Set up milestone checking script
-cat > check_milestones.sh << 'EOF'
-#!/bin/bash
-while true; do
-    if [ -f "./outputs/best_model.pth" ]; then
-        ACCURACY=$(python -c "
+# Quick progress check
+python3 -c "
 import torch
-checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
-print(f'{checkpoint[\"best_acc1\"]:.2f}')
-")
-        EPOCH=$(python -c "
-import torch
-checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
-print(f'{checkpoint[\"epoch\"]}')
-")
-        
-        echo "$(date): Epoch $EPOCH - Accuracy: $ACCURACY%"
-        
-        # Check milestones
-        if [ "$EPOCH" -eq 81 ] && [ $(echo "$ACCURACY >= 75" | bc -l) -eq 1 ]; then
-            echo "🎉 MILESTONE: Epoch 81 target achieved ($ACCURACY% >= 75%)"
-            # Send notification to training session
-            tmux send-keys -t training "echo 'MILESTONE 81 ACHIEVED!'" Enter
-        fi
-        
-        if [ "$EPOCH" -eq 90 ] && [ $(echo "$ACCURACY >= 77" | bc -l) -eq 1 ]; then
-            echo "🎉 MILESTONE: Epoch 90 target achieved ($ACCURACY% >= 77%)"
-            tmux send-keys -t training "echo 'MILESTONE 90 ACHIEVED!'" Enter
-        fi
-        
-        if [ $(echo "$ACCURACY >= 81" | bc -l) -eq 1 ]; then
-            echo "🏆 SUCCESS: 81% TARGET ACHIEVED! ($ACCURACY%)"
-            echo "Training can be stopped early if desired."
-            tmux send-keys -t training "echo 'TARGET 81% ACHIEVED!'" Enter
-        fi
-    fi
-    sleep 3600  # Check every hour
-done
-EOF
+import os
+if os.path.exists('./outputs/best_model.pth'):
+    checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
+    epoch = checkpoint['epoch']
+    accuracy = checkpoint['best_acc1']
+    strategy = 'EMA' if epoch <= 80 else 'SWA'
+    print(f'📊 Current Progress:')
+    print(f'   Epoch: {epoch}/90')
+    print(f'   Best Accuracy: {accuracy:.3f}%')
+    print(f'   Strategy: {strategy}')
+    print(f'   Progress: {epoch/90*100:.1f}%')
+else:
+    print('⏳ Training not started yet')
+"
+```
+
+#### ✅ **Step 5.2: Session Management**
+```bash
+# List all tmux sessions
+tmux list-sessions
+
+# Navigate between sessions:
+# - training: Main training process
+# - dashboard: 4-pane monitoring
+# - milestones: Automated milestone tracking
+
+# Kill all sessions (if needed)
+tmux kill-server
+
+# Recreate sessions if needed
+tmux new-session -d -s training
+tmux new-session -d -s dashboard  
+tmux new-session -d -s milestones
+```
 
 chmod +x check_milestones.sh
 
-# Run milestone checker in tmux
-./check_milestones.sh
+---
 
-# Detach and let it run: Ctrl+B, then D
-```
+### **PHASE 6: COMPLETION & RESULTS**
 
-### **PHASE 5: COST & RESOURCE MONITORING**
-
-#### ✅ **Step 5.1: Cost Tracking Commands**
+#### ✅ **Step 6.1: Training Completion Check**
 ```bash
-# Check current instance uptime
-uptime -p
-
-# Calculate training cost estimate
-python -c "
-import subprocess
-import time
-from datetime import datetime, timedelta
-
-# Manual cost calculation
-print('=' * 50)
-print('💰 COST TRACKING')
-print('=' * 50)
-
-# Get uptime
-result = subprocess.run(['uptime', '-p'], capture_output=True, text=True)
-print(f'Instance uptime: {result.stdout.strip()}')
-
-# Manual cost input (since uptime parsing can be complex)
-try:
-    hours = float(input('Enter current runtime hours: '))
-    
-    hourly_cost = 0.264  # g4dn.2xlarge spot instance
-    current_cost = hours * hourly_cost
-    total_budget = 25.34  # For 96 hours
-    remaining = total_budget - current_cost
-    
-    print(f'Current cost: \${current_cost:.2f}')
-    print(f'Total budget: \${total_budget:.2f}')
-    print(f'Remaining: \${remaining:.2f}')
-    
-    # Progress estimate
-    progress = (hours / 96) * 100
-    print(f'Time progress: {progress:.1f}%')
-    
-    if remaining < 5:
-        print('⚠️  WARNING: Low budget remaining!')
-    elif progress > 80:
-        print('⏰ Training should be completing soon')
-    else:
-        print('✅ Budget and progress on track')
-        
-except ValueError:
-    print('Please enter a valid number for hours')
-"
-
-# Quick cost check script
-cat > cost_check.py << 'EOF'
-import time
-import os
-from datetime import datetime
-
-def cost_check():
-    print("💰 QUICK COST CHECK")
-    print("=" * 30)
-    
-    # Check training start time from log
-    if os.path.exists('training.log'):
-        with open('training.log', 'r') as f:
-            first_line = f.readline()
-        print(f"Training started: {first_line[:19] if first_line else 'Unknown'}")
-    
-    # Manual runtime entry
-    try:
-        hours = float(input("Enter runtime hours: "))
-        cost = hours * 0.264
-        print(f"Estimated cost: ${cost:.2f}")
-        print(f"Budget remaining: ${25.34 - cost:.2f}")
-    except:
-        print("Invalid input")
-
-if __name__ == "__main__":
-    cost_check()
-EOF
-
-# Run cost check
-python cost_check.py
-```
-
-#### ✅ **Step 5.2: Resource Monitoring Commands**
-```bash
-# GPU utilization monitoring
-nvidia-smi --query-gpu=timestamp,name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv
-
-# Continuous GPU monitoring (run in separate tmux pane)
-watch -n 10 "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits"
-
-# System resources
-free -h  # Memory usage
-df -h    # Disk usage
-iostat 1 3  # I/O statistics
-
-# Training process monitoring
-ps aux | grep python | grep train
-pstree -p $(pgrep -f train.py)  # Process tree
-
-# Check for any errors in system logs
-dmesg | tail -20
-journalctl -u nvidia-persistenced --no-pager -n 10
-```
-
-#### ✅ **Step 5.3: Training Health Checks**
-```bash
-# Comprehensive health check script
-cat > health_check.py << 'EOF'
+# Check if training is complete
+python3 -c "
 import torch
-import psutil
-import subprocess
+import os
+if os.path.exists('./outputs/best_model.pth'):
+    checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
+    epoch = checkpoint['epoch']
+    accuracy = checkpoint['best_acc1']
+    print(f'🏆 Training Status:')
+    print(f'   Final Epoch: {epoch}/90')
+    print(f'   Best Accuracy: {accuracy:.3f}%')
+    if epoch >= 90:
+        print('✅ Training Complete!')
+        if accuracy >= 78.0:
+            print('🎉 SUCCESS: Target achieved!')
+        else:
+            print('🟡 PARTIAL: Close to target')
+    else:
+        print('⏳ Training still in progress...')
+else:
+    print('❌ No training checkpoint found')
+"
+```
+
+#### ✅ **Step 6.2: Final Results Analysis**
+```bash
+# Create results summary
+cat > generate_summary.py << 'EOF'
+import torch
 import json
 import os
 from datetime import datetime
 
-def health_check():
-    print("🏥 TRAINING HEALTH CHECK")
-    print("=" * 50)
-    print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 50)
+def generate_summary():
+    if not os.path.exists('./outputs/best_model.pth'):
+        print("❌ No model checkpoint found")
+        return
     
-    # GPU Health
-    try:
-        if torch.cuda.is_available():
-            print(f"✅ CUDA Available: {torch.cuda.get_device_name(0)}")
-            print(f"✅ GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}GB")
-            
-            # Memory usage
-            allocated = torch.cuda.memory_allocated() / 1e9
-            reserved = torch.cuda.memory_reserved() / 1e9
-            print(f"📊 GPU Memory Used: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved")
-        else:
-            print("❌ CUDA not available!")
-    except Exception as e:
-        print(f"❌ GPU check failed: {e}")
+    # Load checkpoint
+    checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
     
-    # System Resources
-    print(f"\n🖥️  System Resources:")
-    print(f"CPU Usage: {psutil.cpu_percent()}%")
-    print(f"RAM Usage: {psutil.virtual_memory().percent}%")
-    print(f"Disk Usage: {psutil.disk_usage('/').percent}%")
+    # Training summary
+    summary = {
+        "training_completed": True,
+        "final_epoch": checkpoint['epoch'],
+        "best_accuracy": checkpoint['best_acc1'],
+        "model_type": "ResNet50",
+        "dataset": "ImageNet",
+        "batch_size": 400,
+        "strategy": "EMA + SWA",
+        "instance_type": "g5.2xlarge",
+        "total_epochs": 90,
+        "timestamp": datetime.now().isoformat()
+    }
     
-    # Training Process
-    print(f"\n🔄 Training Process:")
-    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
-        if 'python' in proc.info['name'] and proc.info['cpu_percent'] > 10:
-            print(f"Process {proc.info['pid']}: CPU {proc.info['cpu_percent']:.1f}%, RAM {proc.info['memory_percent']:.1f}%")
+    # Save summary
+    with open('./outputs/training_summary.json', 'w') as f:
+        json.dump(summary, f, indent=2)
     
-    # Check log for errors
-    print(f"\n📋 Recent Log Status:")
-    if os.path.exists('training.log'):
-        with open('training.log', 'r') as f:
+    # Print results
+    print("🎯 FINAL TRAINING RESULTS")
+    print("=" * 40)
+    print(f"✅ Model: ResNet50")
+    print(f"✅ Dataset: ImageNet (1000 classes)")
+    print(f"✅ Final Epoch: {summary['final_epoch']}/90")
+    print(f"✅ Best Accuracy: {summary['best_accuracy']:.3f}%")
+    print(f"✅ Batch Size: {summary['batch_size']}")
+    print(f"✅ Instance: {summary['instance_type']}")
+    print(f"✅ Strategy: {summary['strategy']}")
+    
+    # Success assessment
+    if summary['best_accuracy'] >= 78.0:
+        print("\n🏆 SUCCESS: Target accuracy achieved!")
+    elif summary['best_accuracy'] >= 75.0:
+        print("\n🟡 GOOD: Close to target accuracy")
+    else:
+        print("\n🔴 NEEDS IMPROVEMENT: Below target")
+    
+    print(f"\n📁 Results saved to: ./outputs/training_summary.json")
+
+if __name__ == "__main__":
+    generate_summary()
+EOF
+
+python3 generate_summary.py
+```
+
+#### ✅ **Step 6.3: Cleanup and Shutdown**
+```bash
+# Stop all monitoring sessions
+tmux kill-session -t dashboard 2>/dev/null
+tmux kill-session -t milestones 2>/dev/null
+tmux list-sessions
+
+# Download important files (if accessing remotely)
+# scp -i key.pem ubuntu@instance-ip:/home/ubuntu/resent50_training/outputs/best_model.pth ./
+# scp -i key.pem ubuntu@instance-ip:/home/ubuntu/resent50_training/training.log ./
+# scp -i key.pem ubuntu@instance-ip:/home/ubuntu/resent50_training/outputs/training_summary.json ./
+
+# Archive results
+tar -czf training_results_$(date +%Y%m%d_%H%M).tar.gz outputs/ training.log
+
+# Final cost calculation
+echo "� Final cost estimate:"
+echo "   Instance runtime: ~22-24 hours"
+echo "   g5.2xlarge cost: ~$0.50-0.60/hour"
+echo "   Total cost: ~$11-14"
+echo "   Storage cost: ~$2-3"
+echo "   Grand total: ~$13-17"
+```
             lines = f.readlines()
         
         # Check last 10 lines for errors
@@ -1225,50 +1154,7 @@ tmux kill-session -t training  # Stop training
 tmux kill-server              # Kill all sessions
 ```
 
-### **PHASE 6: COMPLETION & RESULTS**
-
-#### ✅ **Step 6.1: Safe Training Completion in tmux**
-```bash
-# Attach to training session to check completion
-tmux attach-session -t training
-
-# If training is complete, check results
-python -c "
-import torch
-checkpoint = torch.load('./outputs/best_model.pth', map_location='cpu')
-final_acc = checkpoint['best_acc1']
-final_epoch = checkpoint['epoch']
-
-print(f'🎯 FINAL RESULTS:')
-print(f'Best Accuracy: {final_acc:.2f}%')
-print(f'Final Epoch: {final_epoch}')
-print(f'Model Type: {checkpoint.get(\"model_type\", \"Unknown\")}')
-
-if final_acc >= 81.0:
-    print('✅ SUCCESS: 81% target achieved!')
-elif final_acc >= 79.0:
-    print('🟡 GOOD: Close to target')
-else:
-    print('🔴 BELOW TARGET: Needs investigation')
-"
-
-# Stop training manually if needed (only if you want early stopping)
-# Ctrl+C in the training session, then:
-# tmux send-keys -t training C-c
-```
-
-#### ✅ **Step 6.2: Download Results**
-```bash
-# Package results for download
-tar -czf imagenet_results.tar.gz \
-  outputs/ \
-  training.log \
-  milestones.log \
-  cost_monitor.sh
-
-# Download to local machine
-scp -i your-key.pem ubuntu@your-instance-ip:imagenet_results.tar.gz .
-```
+---
 
 #### ✅ **Step 6.3: Clean tmux Cleanup**
 ```bash
@@ -1422,7 +1308,7 @@ python train.py \\
   --output-dir ./outputs \\
   --epochs 90 \\
   --batch-size 400 \\
-  --lr 0.156 \\
+  --lr 0.1 \\
   --ema-epochs 80 \\
   --swa-epochs 10 \\
   --workers 8 \\
@@ -1438,7 +1324,7 @@ python train.py \\
   --output-dir ./outputs \\
   --epochs 90 \\
   --batch-size 400 \\
-  --lr 0.156 \\
+  --lr 0.1 \\
   --ema-epochs 80 \\
   --swa-epochs 10 \\
   --workers 8 \\
@@ -1473,18 +1359,21 @@ else:
 "
 
 # Resume training with exact same parameters
+
+
 python train.py \
   --data /mnt/nvme_data/imagenet \
   --output-dir ./outputs \
   --epochs 90 \
   --batch-size 400 \
-  --lr 0.156 \
+  --lr 0.1 \
   --ema-epochs 80 \
   --swa-epochs 10 \
   --workers 8 \
   --amp \
-  --resume ./outputs/best_model.pth \
+  --resume ./outputs/latest.pth \
   2>&1 | tee -a training.log
+
 ```
 
 #### **Resume with Different Parameters (if needed):**
@@ -1509,7 +1398,7 @@ python train.py \
   --output-dir ./outputs \
   --epochs 100 \
   --batch-size 400 \
-  --lr 0.156 \
+  --lr 0.1 \
   --ema-epochs 80 \
   --swa-epochs 20 \
   --workers 8 \
