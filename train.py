@@ -191,7 +191,7 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
     return losses.avg, top1.avg
 
 
-def validate(model, val_loader, criterion, args):
+def validate(model, val_loader, criterion, args, logger=None):
     """Validation"""
     model.eval()  # Ensure model is in eval mode
     losses = AverageMeter('Loss')
@@ -221,7 +221,7 @@ def validate(model, val_loader, criterion, args):
             })
             
             # Debug: Print first batch predictions for verification
-            if i == 0 and args.debug:
+            if i == 0 and args.debug and logger:
                 pred_classes = outputs.argmax(dim=1)[:5]
                 actual_classes = targets[:5]
                 logger.info(f"Sample predictions: {pred_classes.cpu().tolist()}")
@@ -348,18 +348,53 @@ def main():
                         logger.warning(f"Invalid best_acc1 in checkpoint: {best_acc1}")
                         best_acc1 = 0.0
                     
-                    # Load EMA state if available
+                    # Load EMA state if available - but check for corruption
                     if 'ema_model' in checkpoint and ema_model:
-                        ema_model.load_state_dict(checkpoint['ema_model'])
+                        ema_checkpoint = checkpoint['ema_model']
+                        old_decay = ema_checkpoint.get('decay', 0.999)
+                        
+                        # Always load the EMA state first
+                        ema_model.load_state_dict(ema_checkpoint)
                         logger.info("✅ EMA model state restored")
                         
-                        # Force EMA decay to current args value (override checkpoint)
-                        old_decay = ema_model.decay
-                        ema_model.decay = args.ema_decay
-                        if old_decay != args.ema_decay:
+                        # Override decay if needed
+                        if abs(old_decay - args.ema_decay) > 1e-4:
                             logger.info(f"🔧 EMA decay overridden: {old_decay:.4f} → {args.ema_decay:.4f}")
-                        else:
-                            logger.info(f"✅ EMA decay confirmed: {args.ema_decay:.4f}")
+                            ema_model.decay = args.ema_decay
+                        
+                        # Manual EMA reset for guaranteed working EMA from resume
+                        logger.info("🔄 Reinitializing EMA from current main model for clean start...")
+                        ema_model = EMAModel(model, decay=args.ema_decay)
+                        logger.info("✅ EMA model reinitialized with healthy weights")
+                        logger.info("� Performing EMA health check...")
+                        ema_model.model.eval()
+                        with torch.no_grad():
+                            # Get a small validation batch for health check
+                            val_iter = iter(val_loader)
+                            batch_data = next(val_iter)
+                            if isinstance(batch_data, (list, tuple)) and len(batch_data) >= 2:
+                                images = batch_data[0].to(device)
+                                targets = batch_data[1].to(device)
+                            else:
+                                # Fallback for single tensor
+                                images = batch_data.to(device)
+                                targets = None
+                            
+                            # Test EMA predictions
+                            ema_outputs = ema_model.model(images[:min(32, images.size(0))])
+                            ema_probs = torch.softmax(ema_outputs, dim=1)
+                            ema_confidence = ema_probs.max(dim=1)[0].mean().item()
+                            
+                            logger.info(f"📊 EMA health check - Average confidence: {ema_confidence:.4f}")
+                            
+                            # If EMA is severely broken (very low confidence), reinitialize
+                            if ema_confidence < 0.02:  # Less than 2% confidence suggests broken weights
+                                logger.warning("⚠️  EMA model appears corrupted (very low confidence)")
+                                logger.info("🔄 Reinitializing EMA from current main model...")
+                                ema_model = EMAModel(model, decay=args.ema_decay)
+                                logger.info("✅ EMA model reinitialized with healthy weights")
+                            else:
+                                logger.info("✅ EMA model health check passed")
                     
                     # Load SWA state if available
                     if 'swa_model' in checkpoint and swa_model:
@@ -434,13 +469,13 @@ def main():
         # For first few epochs, use main model since EMA hasn't had time to converge
         # This prevents validation accuracy being stuck at random levels
         if epoch < 10:  # Use main model for first 10 epochs (epochs 0-9)
-            val_loss, val_acc1 = validate(model, val_loader, criterion, args)
+            val_loss, val_acc1 = validate(model, val_loader, criterion, args, logger)
             eval_model = model
             model_type = "Main (EMA warmup)"
             logger.info(f"🔄 Using main model for validation (EMA warmup period)")
         elif epoch < args.ema_epochs:
             # Use EMA model after warmup period (epoch 10+)
-            val_loss, val_acc1 = validate(ema_model.model, val_loader, criterion, args)
+            val_loss, val_acc1 = validate(ema_model.model, val_loader, criterion, args, logger)
             eval_model = ema_model.model
             model_type = "EMA"
             logger.info(f"📊 EMA updates: {ema_model.num_updates}, decay: {ema_model.decay:.4f}")
@@ -449,12 +484,12 @@ def main():
             if epoch == (args.epochs - args.swa_epochs):
                 logger.info("Updating SWA batch norm statistics...")
                 update_bn(train_loader, swa_model, device=torch.device('cuda'))
-            val_loss, val_acc1 = validate(swa_model, val_loader, criterion, args)
+            val_loss, val_acc1 = validate(swa_model, val_loader, criterion, args, logger)
             eval_model = swa_model
             model_type = "SWA"
         else:
             # Use base model
-            val_loss, val_acc1 = validate(model, val_loader, criterion, args)
+            val_loss, val_acc1 = validate(model, val_loader, criterion, args, logger)
             eval_model = model
             model_type = "Base"
         
