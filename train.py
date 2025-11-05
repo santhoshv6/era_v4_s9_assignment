@@ -352,6 +352,14 @@ def main():
                     if 'ema_model' in checkpoint and ema_model:
                         ema_model.load_state_dict(checkpoint['ema_model'])
                         logger.info("✅ EMA model state restored")
+                        
+                        # Force EMA decay to current args value (override checkpoint)
+                        old_decay = ema_model.decay
+                        ema_model.decay = args.ema_decay
+                        if old_decay != args.ema_decay:
+                            logger.info(f"🔧 EMA decay overridden: {old_decay:.4f} → {args.ema_decay:.4f}")
+                        else:
+                            logger.info(f"✅ EMA decay confirmed: {args.ema_decay:.4f}")
                     
                     # Load SWA state if available
                     if 'swa_model' in checkpoint and swa_model:
@@ -406,6 +414,7 @@ def main():
         
         # Training
         # Track parameter changes for debugging
+        pre_train_param = None
         if args.debug and epoch == 0:
             pre_train_param = next(model.parameters()).clone().detach()
             
@@ -414,7 +423,7 @@ def main():
             scaler=scaler, ema_model=ema_model, swa_model=swa_model
         )
         
-        if args.debug and epoch == 0:
+        if args.debug and epoch == 0 and pre_train_param is not None:
             post_train_param = next(model.parameters()).clone().detach()
             param_change = torch.norm(post_train_param - pre_train_param).item()
             logger.info(f"🔧 Parameter change magnitude: {param_change:.6f}")
@@ -484,9 +493,8 @@ def main():
         # Save checkpoint every epoch (for crash recovery)
         save_checkpoint(checkpoint_state, False, str(output_dir), 'latest.pth')
         
-        # Save numbered checkpoint every 10 epochs
-        if (epoch + 1) % 10 == 0:
-            save_checkpoint(checkpoint_state, False, str(output_dir), f'checkpoint_epoch_{epoch+1}.pth')
+        # Save numbered checkpoint every epoch (comprehensive backup)
+        save_checkpoint(checkpoint_state, False, str(output_dir), f'checkpoint_epoch_{epoch+1}.pth')
         
         # Save best model when accuracy improves
         if val_acc1 > best_acc1:
