@@ -348,53 +348,59 @@ def main():
                         logger.warning(f"Invalid best_acc1 in checkpoint: {best_acc1}")
                         best_acc1 = 0.0
                     
-                    # Load EMA state if available - but check for corruption
+                    # Load EMA state if available with decay override
                     if 'ema_model' in checkpoint and ema_model:
                         ema_checkpoint = checkpoint['ema_model']
                         old_decay = ema_checkpoint.get('decay', 0.999)
                         
-                        # Always load the EMA state first
+                        # Load EMA state
                         ema_model.load_state_dict(ema_checkpoint)
                         logger.info("✅ EMA model state restored")
                         
-                        # Override decay if needed
+                        # Always override decay to ensure 0.99 is used
+                        ema_model.decay = args.ema_decay
                         if abs(old_decay - args.ema_decay) > 1e-4:
                             logger.info(f"🔧 EMA decay overridden: {old_decay:.4f} → {args.ema_decay:.4f}")
-                            ema_model.decay = args.ema_decay
                         
-                        # Manual EMA reset for guaranteed working EMA from resume
-                        logger.info("🔄 Reinitializing EMA from current main model for clean start...")
-                        ema_model = EMAModel(model, decay=args.ema_decay)
-                        logger.info("✅ EMA model reinitialized with healthy weights")
-                        logger.info("� Performing EMA health check...")
-                        ema_model.model.eval()
-                        with torch.no_grad():
-                            # Get a small validation batch for health check
-                            val_iter = iter(val_loader)
-                            batch_data = next(val_iter)
-                            if isinstance(batch_data, (list, tuple)) and len(batch_data) >= 2:
-                                images = batch_data[0].to(device)
-                                targets = batch_data[1].to(device)
-                            else:
-                                # Fallback for single tensor
-                                images = batch_data.to(device)
-                                targets = None
-                            
-                            # Test EMA predictions
-                            ema_outputs = ema_model.model(images[:min(32, images.size(0))])
-                            ema_probs = torch.softmax(ema_outputs, dim=1)
-                            ema_confidence = ema_probs.max(dim=1)[0].mean().item()
-                            
-                            logger.info(f"📊 EMA health check - Average confidence: {ema_confidence:.4f}")
-                            
-                            # If EMA is severely broken (very low confidence), reinitialize
-                            if ema_confidence < 0.02:  # Less than 2% confidence suggests broken weights
-                                logger.warning("⚠️  EMA model appears corrupted (very low confidence)")
-                                logger.info("🔄 Reinitializing EMA from current main model...")
-                                ema_model = EMAModel(model, decay=args.ema_decay)
-                                logger.info("✅ EMA model reinitialized with healthy weights")
-                            else:
-                                logger.info("✅ EMA model health check passed")
+                        # Smart EMA health check - only reinitialize if actually broken
+                        logger.info("🔍 Performing EMA health check...")
+                        try:
+                            ema_model.model.eval()
+                            with torch.no_grad():
+                                # Get a small validation batch for health check
+                                val_iter = iter(val_loader)
+                                batch_data = next(val_iter)
+                                if isinstance(batch_data, (list, tuple)) and len(batch_data) >= 2:
+                                    images = batch_data[0].to(device)
+                                    targets = batch_data[1].to(device)
+                                    
+                                    # Test EMA predictions on real validation data
+                                    test_images = images[:min(32, images.size(0))]
+                                    ema_outputs = ema_model.model(test_images)
+                                    ema_probs = torch.softmax(ema_outputs, dim=1)
+                                    ema_confidence = ema_probs.max(dim=1)[0].mean().item()
+                                    
+                                    logger.info(f"📊 EMA health check - Average confidence: {ema_confidence:.4f}")
+                                    logger.info(f"📊 EMA has {ema_model.num_updates} accumulated updates")
+                                    
+                                    # Only reinitialize if EMA is severely broken (very low confidence)
+                                    if ema_confidence < 0.02:  # Less than 2% confidence suggests broken weights
+                                        logger.warning("⚠️  EMA model appears corrupted (very low confidence)")
+                                        logger.info("🔄 Reinitializing EMA from current main model...")
+                                        ema_model = EMAModel(model, decay=args.ema_decay)
+                                        logger.info("✅ EMA model reinitialized with healthy weights")
+                                    else:
+                                        logger.info("✅ EMA model health check passed - keeping existing EMA")
+                                else:
+                                    # Fallback: skip health check if batch structure is unexpected
+                                    logger.warning("⚠️  Unexpected validation batch structure - skipping detailed health check")
+                                    logger.info("✅ EMA model health check skipped - keeping existing EMA")
+                                
+                        except Exception as e:
+                            logger.warning(f"⚠️  EMA health check failed: {e}")
+                            logger.info("🔄 Reinitializing EMA from current main model as fallback...")
+                            ema_model = EMAModel(model, decay=args.ema_decay)
+                            logger.info("✅ EMA model reinitialized with healthy weights")
                     
                     # Load SWA state if available
                     if 'swa_model' in checkpoint and swa_model:
