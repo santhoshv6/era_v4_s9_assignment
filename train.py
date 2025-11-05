@@ -58,8 +58,8 @@ def parse_args():
                        help='Use EMA for first N epochs (default: 100)')
     parser.add_argument('--swa-epochs', type=int, default=20,
                        help='Use SWA for last N epochs (default: 20)')
-    parser.add_argument('--ema-decay', type=float, default=0.99,
-                       help='EMA decay rate (default: 0.99)')
+    parser.add_argument('--ema-decay', type=float, default=0.9999,
+                       help='EMA decay rate (default: 0.9999)')
     parser.add_argument('--swa-lr', type=float, default=0.01,
                        help='SWA learning rate (default: 0.01)')
     
@@ -357,10 +357,10 @@ def main():
                         ema_model.load_state_dict(ema_checkpoint)
                         logger.info("✅ EMA model state restored")
                         
-                        # Always override decay to ensure 0.99 is used
-                        ema_model.decay = args.ema_decay
-                        if abs(old_decay - args.ema_decay) > 1e-4:
+                        # Only override decay if significantly different (don't interfere with internal logic)
+                        if abs(old_decay - args.ema_decay) > 0.001:
                             logger.info(f"🔧 EMA decay overridden: {old_decay:.4f} → {args.ema_decay:.4f}")
+                            ema_model.decay = args.ema_decay
                         
                         # Smart EMA health check - only reinitialize if actually broken
                         logger.info("🔍 Performing EMA health check...")
@@ -383,11 +383,15 @@ def main():
                                     logger.info(f"📊 EMA health check - Average confidence: {ema_confidence:.4f}")
                                     logger.info(f"📊 EMA has {ema_model.num_updates} accumulated updates")
                                     
-                                    # Only reinitialize if EMA is severely broken (very low confidence)
-                                    if ema_confidence < 0.02:  # Less than 2% confidence suggests broken weights
-                                        logger.warning("⚠️  EMA model appears corrupted (very low confidence)")
+                                    # More conservative reinitialization - only if severely broken
+                                    if ema_confidence < 0.02 or ema_model.num_updates < 1000:
+                                        logger.warning("⚠️  EMA model appears corrupted or insufficient updates")
                                         logger.info("🔄 Reinitializing EMA from current main model...")
                                         ema_model = EMAModel(model, decay=args.ema_decay)
+                                        # Force some rapid updates to jumpstart EMA
+                                        logger.info("🚀 Performing rapid EMA initialization...")
+                                        for _ in range(10):
+                                            ema_model.update(model)
                                         logger.info("✅ EMA model reinitialized with healthy weights")
                                     else:
                                         logger.info("✅ EMA model health check passed - keeping existing EMA")
@@ -400,6 +404,9 @@ def main():
                             logger.warning(f"⚠️  EMA health check failed: {e}")
                             logger.info("🔄 Reinitializing EMA from current main model as fallback...")
                             ema_model = EMAModel(model, decay=args.ema_decay)
+                            # Force some rapid updates to jumpstart EMA
+                            for _ in range(10):
+                                ema_model.update(model)
                             logger.info("✅ EMA model reinitialized with healthy weights")
                     
                     # Load SWA state if available
@@ -472,19 +479,37 @@ def main():
                 logger.warning("⚠️  Very small parameter changes detected - check optimizer/gradients!")
         
         # Validation with appropriate model
-        # For first few epochs, use main model since EMA hasn't had time to converge
-        # This prevents validation accuracy being stuck at random levels
-        if epoch < 10:  # Use main model for first 10 epochs (epochs 0-9)
-            val_loss, val_acc1 = validate(model, val_loader, criterion, args, logger)
-            eval_model = model
-            model_type = "Main (EMA warmup)"
-            logger.info(f"🔄 Using main model for validation (EMA warmup period)")
-        elif epoch < args.ema_epochs:
-            # Use EMA model after warmup period (epoch 10+)
-            val_loss, val_acc1 = validate(ema_model.model, val_loader, criterion, args, logger)
-            eval_model = ema_model.model
-            model_type = "EMA"
-            logger.info(f"📊 EMA updates: {ema_model.num_updates}, decay: {ema_model.decay:.4f}")
+        # Strategy: Use main model during EMA warmup, then switch when EMA is ready
+        if epoch < args.ema_epochs:
+            # During EMA phase: validate with both models to track progress
+            main_val_loss, main_val_acc1 = validate(model, val_loader, criterion, args, logger)
+            
+            # Check if EMA has enough updates and reasonable performance
+            ema_ready = (ema_model.num_updates > 5000 and epoch >= 15)  # Need substantial updates + time
+            
+            if ema_ready:
+                ema_val_loss, ema_val_acc1 = validate(ema_model.model, val_loader, criterion, args, logger)
+                
+                # Use EMA only if it's performing reasonably well (within 5% of main model)
+                if ema_val_acc1 >= (main_val_acc1 - 5.0):
+                    val_loss, val_acc1 = ema_val_loss, ema_val_acc1
+                    eval_model = ema_model.model
+                    model_type = "EMA"
+                    logger.info(f"📊 EMA updates: {ema_model.num_updates}, decay: {ema_model.decay:.4f}")
+                    logger.info(f"✅ Using EMA model (EMA: {ema_val_acc1:.2f}% vs Main: {main_val_acc1:.2f}%)")
+                else:
+                    val_loss, val_acc1 = main_val_loss, main_val_acc1
+                    eval_model = model
+                    model_type = "Main (EMA underperforming)"
+                    logger.info(f"🔄 Using main model - EMA underperforming (EMA: {ema_val_acc1:.2f}% vs Main: {main_val_acc1:.2f}%)")
+                    logger.info(f"📊 EMA updates: {ema_model.num_updates}, decay: {ema_model.decay:.4f}")
+            else:
+                val_loss, val_acc1 = main_val_loss, main_val_acc1
+                eval_model = model
+                model_type = "Main (EMA warmup)"
+                warmup_reason = f"updates: {ema_model.num_updates}" if ema_model.num_updates <= 5000 else f"epoch: {epoch+1}/15"
+                logger.info(f"🔄 Using main model for validation (EMA warmup - {warmup_reason})")
+                
         elif epoch >= (args.epochs - args.swa_epochs):
             # Use SWA model
             if epoch == (args.epochs - args.swa_epochs):

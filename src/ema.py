@@ -61,14 +61,13 @@ class EMAModel:
         """
         self.num_updates += 1
         
-        # More aggressive warmup - use lower decay for first 1000 updates
-        if self.num_updates <= 1000:
-            # Start with much lower decay and gradually increase
-            warmup_decay = min(0.9, self.num_updates / 1000.0 * self.decay)
-            decay = warmup_decay
+        # ✅ FIXED: Proper warmup that preserves averaging
+        if self.num_updates <= 100:
+            # Use slightly lower decay for first 100 updates for faster initial convergence
+            decay = min(self.decay, 0.999)
         else:
-            # Standard warmup formula after initial period
-            decay = min(self.decay, (1 + self.num_updates) / (10 + self.num_updates))
+            # Conservative dynamic decay after warmup - keeps decay high
+            decay = min(self.decay, (1000 + self.num_updates) / (1010 + self.num_updates))
         
         with torch.no_grad():
             for ema_param, model_param in zip(self.model.parameters(), model.parameters()):
@@ -94,6 +93,10 @@ class EMAModel:
         self.model.load_state_dict(state_dict['model'])
         self.decay = state_dict.get('decay', self.decay)
         self.num_updates = state_dict.get('num_updates', 0)
+    
+    def reset_updates(self):
+        """Reset the update counter (useful for fresh EMA initialization)."""
+        self.num_updates = 0
     
     def __call__(self, *args, **kwargs):
         """Allow direct calling of EMA model."""
