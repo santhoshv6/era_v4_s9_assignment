@@ -58,8 +58,8 @@ def parse_args():
                        help='Use EMA for first N epochs (default: 100)')
     parser.add_argument('--swa-epochs', type=int, default=20,
                        help='Use SWA for last N epochs (default: 20)')
-    parser.add_argument('--ema-decay', type=float, default=0.999,
-                       help='EMA decay rate (default: 0.999)')
+    parser.add_argument('--ema-decay', type=float, default=0.99,
+                       help='EMA decay rate (default: 0.99)')
     parser.add_argument('--swa-lr', type=float, default=0.01,
                        help='SWA learning rate (default: 0.01)')
     
@@ -424,13 +424,13 @@ def main():
         # Validation with appropriate model
         # For first few epochs, use main model since EMA hasn't had time to converge
         # This prevents validation accuracy being stuck at random levels
-        if epoch < 10:  # Use main model for first 10 epochs (EXTENDED WARMUP)
+        if epoch < 10:  # Use main model for first 10 epochs (epochs 0-9)
             val_loss, val_acc1 = validate(model, val_loader, criterion, args)
             eval_model = model
             model_type = "Main (EMA warmup)"
             logger.info(f"🔄 Using main model for validation (EMA warmup period)")
         elif epoch < args.ema_epochs:
-            # Use EMA model after warmup period
+            # Use EMA model after warmup period (epoch 10+)
             val_loss, val_acc1 = validate(ema_model.model, val_loader, criterion, args)
             eval_model = ema_model.model
             model_type = "EMA"
