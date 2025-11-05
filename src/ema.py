@@ -61,10 +61,10 @@ class EMAModel:
         """
         self.num_updates += 1
         
-        # More aggressive warmup - use lower decay for first 1000 updates
-        if self.num_updates <= 1000:
-            # Start with much lower decay and gradually increase
-            warmup_decay = min(0.9, self.num_updates / 1000.0 * self.decay)
+        # Aggressive warmup - use much lower decay for first 2000 updates
+        if self.num_updates <= 2000:
+            # Start with very low decay and gradually increase
+            warmup_decay = min(0.95, self.num_updates / 2000.0 * self.decay)
             decay = warmup_decay
         else:
             # Standard warmup formula after initial period
