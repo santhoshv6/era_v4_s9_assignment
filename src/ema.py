@@ -117,7 +117,7 @@ class EMAModel:
         return self.model(*args, **kwargs)
 
 
-def apply_ema_to_model(model: nn.Module, ema_model: EMAModel):
+def apply_ema_to_model(model: nn.Module, ema_model: None): #EMAModel
     """
     Apply EMA weights to the original model (for final inference).
     

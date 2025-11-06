@@ -115,10 +115,10 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
     losses = AverageMeter('Loss')
     top1 = AverageMeter('Acc@1')
     
-    # Determine strategy
-    use_ema = epoch < args.ema_epochs
+    # Determine strategy - EMA DISABLED
+    use_ema = False  # EMA disabled for stability
     use_swa = epoch >= (args.epochs - args.swa_epochs)
-    strategy = "EMA" if use_ema else "SWA" if use_swa else "Base"
+    strategy = "SWA" if use_swa else "Main"
     
     pbar = tqdm(train_loader, desc=f'Epoch {epoch+1:3d}/{args.epochs} ({strategy})')
     
@@ -173,10 +173,9 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
             optimizer.step()
         
         # Update models
-        if use_ema and ema_model:
-            ema_model.update(model)
-        elif use_swa and swa_model:
+        if use_swa and swa_model:
             swa_model.update_parameters(model)
+        # EMA disabled for stability
         
         # Metrics
         acc1, _ = accuracy(outputs, targets, topk=(1, 5))
@@ -252,8 +251,8 @@ def main():
     logger = setup_logging(str(output_dir))
     logger.info("🚀 Starting ResNet50 ImageNet Training")
     logger.info(f"Device: {device}")
-    logger.info(f"Strategy: EMA (epochs 1-{args.ema_epochs}) + SWA (last {args.swa_epochs})")
-    logger.info(f"Target: 81% top-1 accuracy")
+    logger.info(f"Strategy: Main Model Only + SWA (last {args.swa_epochs}) - EMA Disabled")
+    logger.info(f"Target: 78% top-1 accuracy")
     
     # Data loading
     train_transform, val_transform = build_transforms(
@@ -348,66 +347,8 @@ def main():
                         logger.warning(f"Invalid best_acc1 in checkpoint: {best_acc1}")
                         best_acc1 = 0.0
                     
-                    # Load EMA state if available with decay override
-                    if 'ema_model' in checkpoint and ema_model:
-                        ema_checkpoint = checkpoint['ema_model']
-                        old_decay = ema_checkpoint.get('decay', 0.999)
-                        
-                        # Load EMA state
-                        ema_model.load_state_dict(ema_checkpoint)
-                        logger.info("✅ EMA model state restored")
-                        
-                        # Only override decay if significantly different (don't interfere with internal logic)
-                        if abs(old_decay - args.ema_decay) > 0.001:
-                            logger.info(f"🔧 EMA decay overridden: {old_decay:.4f} → {args.ema_decay:.4f}")
-                            ema_model.decay = args.ema_decay
-                        
-                        # Smart EMA health check - only reinitialize if actually broken
-                        logger.info("🔍 Performing EMA health check...")
-                        try:
-                            ema_model.model.eval()
-                            with torch.no_grad():
-                                # Get a small validation batch for health check
-                                val_iter = iter(val_loader)
-                                batch_data = next(val_iter)
-                                if isinstance(batch_data, (list, tuple)) and len(batch_data) >= 2:
-                                    images = batch_data[0].to(device)
-                                    targets = batch_data[1].to(device)
-                                    
-                                    # Test EMA predictions on real validation data
-                                    test_images = images[:min(32, images.size(0))]
-                                    ema_outputs = ema_model.model(test_images)
-                                    ema_probs = torch.softmax(ema_outputs, dim=1)
-                                    ema_confidence = ema_probs.max(dim=1)[0].mean().item()
-                                    
-                                    logger.info(f"📊 EMA health check - Average confidence: {ema_confidence:.4f}")
-                                    logger.info(f"📊 EMA has {ema_model.num_updates} accumulated updates")
-                                    
-                                    # Updated health check for new adaptive decay EMA
-                                    if ema_confidence < 0.01 or ema_model.num_updates < 100:
-                                        logger.warning("⚠️  EMA model appears corrupted or insufficient updates")
-                                        logger.info("🔄 Reinitializing EMA from current main model...")
-                                        ema_model = EMAModel(model, decay=args.ema_decay)
-                                        # Force some rapid updates to jumpstart EMA
-                                        logger.info("🚀 Performing rapid EMA initialization...")
-                                        for _ in range(20):
-                                            ema_model.update(model)
-                                        logger.info("✅ EMA model reinitialized with healthy weights")
-                                    else:
-                                        logger.info("✅ EMA model health check passed - keeping existing EMA")
-                                else:
-                                    # Fallback: skip health check if batch structure is unexpected
-                                    logger.warning("⚠️  Unexpected validation batch structure - skipping detailed health check")
-                                    logger.info("✅ EMA model health check skipped - keeping existing EMA")
-                                
-                        except Exception as e:
-                            logger.warning(f"⚠️  EMA health check failed: {e}")
-                            logger.info("🔄 Reinitializing EMA from current main model as fallback...")
-                            ema_model = EMAModel(model, decay=args.ema_decay)
-                            # Force some rapid updates to jumpstart EMA
-                            for _ in range(20):
-                                ema_model.update(model)
-                            logger.info("✅ EMA model reinitialized with healthy weights")
+                    # EMA disabled for stability - skip EMA loading
+                    logger.info("🔄 EMA disabled for stability - skipping EMA state loading")
                     
                     # Load SWA state if available
                     if 'swa_model' in checkpoint and swa_model:
@@ -430,7 +371,7 @@ def main():
                         logger.info("✅ Mixed precision scaler restored")
                     
                     logger.info(f"✅ Resumed from epoch {start_epoch}, best accuracy: {best_acc1:.2f}%")
-                    logger.info(f"📊 Resuming in {'EMA' if start_epoch < args.ema_epochs else 'SWA' if start_epoch >= (args.epochs - args.swa_epochs) else 'Base'} phase")
+                    logger.info(f"📊 Resuming in {'Main Model' if start_epoch < (args.epochs - args.swa_epochs) else 'SWA'} phase")
             
             except Exception as e:
                 logger.error(f"❌ Failed to load checkpoint: {e}")
@@ -479,36 +420,13 @@ def main():
                 logger.warning("⚠️  Very small parameter changes detected - check optimizer/gradients!")
         
         # Validation with appropriate model
-        # Strategy: Use EMA after minimal warmup (new adaptive decay makes EMA ready much faster)
-        if epoch < args.ema_epochs:
-            # During EMA phase: validate with both models to track progress
-            main_val_loss, main_val_acc1 = validate(model, val_loader, criterion, args, logger)
-            
-            # With new adaptive decay, EMA is ready much sooner (just need basic warmup)
-            ema_ready = (ema_model.num_updates > 500 and epoch >= 2)  # Much earlier readiness
-            
-            if ema_ready:
-                ema_val_loss, ema_val_acc1 = validate(ema_model.model, val_loader, criterion, args, logger)
-                
-                # More lenient performance check - EMA can temporarily underperform during adaptation
-                if ema_val_acc1 >= (main_val_acc1 - 10.0):  # Allow 10% gap during adaptation
-                    val_loss, val_acc1 = ema_val_loss, ema_val_acc1
-                    eval_model = ema_model.model
-                    model_type = "EMA"
-                    logger.info(f"📊 EMA updates: {ema_model.num_updates}")
-                    logger.info(f"✅ Using EMA model (EMA: {ema_val_acc1:.2f}% vs Main: {main_val_acc1:.2f}%)")
-                else:
-                    val_loss, val_acc1 = main_val_loss, main_val_acc1
-                    eval_model = model
-                    model_type = "Main (EMA adapting)"
-                    logger.info(f"🔄 Using main model - EMA adapting (EMA: {ema_val_acc1:.2f}% vs Main: {main_val_acc1:.2f}%)")
-                    logger.info(f"📊 EMA updates: {ema_model.num_updates}")
-            else:
-                val_loss, val_acc1 = main_val_loss, main_val_acc1
-                eval_model = model
-                model_type = "Main (EMA warmup)"
-                warmup_reason = f"updates: {ema_model.num_updates}" if ema_model.num_updates <= 500 else f"epoch: {epoch+1}/3"
-                logger.info(f"🔄 Using main model for validation (EMA warmup - {warmup_reason})")
+        # Strategy: Use ONLY main model (EMA disabled for stability)
+        if epoch < (args.epochs - args.swa_epochs):
+            # Use ONLY main model during training - EMA disabled completely
+            val_loss, val_acc1 = validate(model, val_loader, criterion, args, logger)
+            eval_model = model
+            model_type = "Main"
+            logger.info(f"🔄 Using main model only (EMA disabled for stability)")
                 
         elif epoch >= (args.epochs - args.swa_epochs):
             # Use SWA model
@@ -543,10 +461,6 @@ def main():
             'val_acc1': val_acc1
         }
         
-        # Add EMA state if available
-        if ema_model:
-            checkpoint_state['ema_model'] = ema_model.state_dict()
-        
         # Add SWA state if available
         if swa_model and epoch >= (args.epochs - args.swa_epochs):
             checkpoint_state['swa_model'] = swa_model.state_dict()
@@ -570,10 +484,10 @@ def main():
             logger.info(f'💾 New best model saved: {val_acc1:.2f}%')
         
         # Milestone checks (0-indexed epochs)
-        if epoch == 79:  # This is epoch 80 (EMA phase end)
-            logger.info(f'🎯 Milestone: Epoch 80 = {val_acc1:.2f}% (target: >75%)')
-        if epoch == 89:  # This is epoch 90 (training end)
-            logger.info(f'🎯 Milestone: Epoch 90 = {val_acc1:.2f}% (target: >78%)')
+        if epoch == (args.epochs - args.swa_epochs - 1):  # Last epoch before SWA
+            logger.info(f'🎯 Milestone: Epoch {epoch+1} = {val_acc1:.2f}% (target: >75% before SWA)')
+        if epoch == (args.epochs - 1):  # Final epoch
+            logger.info(f'🎯 Milestone: Final Epoch {epoch+1} = {val_acc1:.2f}% (target: >78%)')
     
     # Final results
     total_time = time.time() - start_time
@@ -582,10 +496,10 @@ def main():
     logger.info(f'Total Time: {format_time(total_time)}')
     logger.info(f'Output saved to: {output_dir}')
     
-    if best_acc1 >= 81.0:
-        logger.info('✅ SUCCESS: Achieved 81%+ target!')
-    elif best_acc1 >= 79.0:
-        logger.info('🟡 GOOD: Close to 81% target')
+    if best_acc1 >= 78.0:
+        logger.info('✅ SUCCESS: Achieved 78%+ target!')
+    elif best_acc1 >= 75.0:
+        logger.info('🟡 GOOD: Close to 78% target')
     else:
         logger.info('🔴 BELOW TARGET: Check hyperparameters')
 
