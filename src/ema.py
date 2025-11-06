@@ -66,8 +66,16 @@ class EMAModel:
             # Use slightly lower decay for first 100 updates for faster initial convergence
             decay = min(self.decay, 0.999)
         else:
-            # Conservative dynamic decay after warmup - keeps decay high
-            decay = min(self.decay, (1000 + self.num_updates) / (1010 + self.num_updates))
+            # Adaptive decay based on number of updates - more aggressive than before
+            if self.num_updates <= 10000:
+                # Early training: moderately aggressive for adaptation
+                decay = min(self.decay, 0.995)
+            elif self.num_updates <= 50000:
+                # Mid training: balanced approach
+                decay = min(self.decay, 0.998)
+            else:
+                # Late training: conservative but not frozen
+                decay = min(self.decay, 0.9995)
         
         with torch.no_grad():
             for ema_param, model_param in zip(self.model.parameters(), model.parameters()):
@@ -97,6 +105,12 @@ class EMAModel:
     def reset_updates(self):
         """Reset the update counter (useful for fresh EMA initialization)."""
         self.num_updates = 0
+    
+    def adjust_decay(self, new_decay: float):
+        """Adjust decay rate during training (useful for EMA recovery)."""
+        old_decay = self.decay
+        self.decay = new_decay
+        return old_decay
     
     def __call__(self, *args, **kwargs):
         """Allow direct calling of EMA model."""
