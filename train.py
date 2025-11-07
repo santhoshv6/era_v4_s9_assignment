@@ -32,6 +32,24 @@ from src.utils import (
 from src.ema import EMAModel
 
 
+def get_dynamic_mixup_params(epoch, current_alpha=0.1, current_prob=0.5, target_alpha=0.05, target_prob=0.3):
+    """Get mixup parameters that gradually reduce from current conservative to very conservative"""
+    # The model has already been using conservative params (0.1, 0.5)
+    # We can reduce them further to help close the train/val gap
+    if epoch < 67:
+        # Keep current conservative parameters
+        return current_alpha, current_prob
+    elif epoch < 70:
+        # Reduce further over 3 epochs to very conservative
+        progress = (epoch - 67) / (70 - 67)
+        alpha = current_alpha + progress * (target_alpha - current_alpha)
+        prob = current_prob + progress * (target_prob - current_prob)
+        return alpha, prob
+    else:
+        # Use very conservative parameters from epoch 70+
+        return target_alpha, target_prob
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='ResNet50 ImageNet Training')
     
@@ -180,15 +198,28 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
         # Backward pass
         if args.amp and scaler:
             scaler.scale(loss).backward()
-            # Relaxed gradient clipping for better convergence
+            # Faster gradient clipping transition for stability
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+            if epoch < 68:
+                max_norm = 1.0  # Keep original for 1 epoch
+            elif epoch < 70:
+                max_norm = 1.5  # Gradual increase for 2 epochs
+            else:
+                max_norm = 2.0  # Full relaxation from epoch 70
+                    
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
             scaler.step(optimizer)
             scaler.update()
         else:
             loss.backward()
-            # Relaxed gradient clipping for better convergence
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+            # Faster gradient clipping transition for stability
+            if epoch < 68:
+                max_norm = 1.0  # Keep original for 1 epoch
+            elif epoch < 70:
+                max_norm = 1.5  # Gradual increase for 2 epochs
+            else:
+                max_norm = 2.0  # Full relaxation from epoch 70
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
             optimizer.step()
         
         # Update models
@@ -371,28 +402,57 @@ def main():
                     
                     # Load SWA state if available
                     if 'swa_model' in checkpoint and swa_model:
-                        swa_model.load_state_dict(checkpoint['swa_model'])
-                        logger.info("✅ SWA model state restored")
+                        try:
+                            swa_model.load_state_dict(checkpoint['swa_model'])
+                            logger.info("✅ SWA model state restored")
+                        except Exception as e:
+                            logger.warning(f"⚠️  Failed to load SWA model state: {e}")
+                            logger.info("🔄 SWA model will be initialized fresh")
                     
                     # Load scheduler state (regular scheduler)
                     if 'scheduler' in checkpoint:
-                        scheduler.load_state_dict(checkpoint['scheduler'])
-                        logger.info("✅ Scheduler state restored")
+                        try:
+                            scheduler.load_state_dict(checkpoint['scheduler'])
+                            logger.info("✅ Scheduler state restored")
+                        except Exception as e:
+                            logger.warning(f"⚠️  Failed to load scheduler state: {e}")
+                            logger.info("🔄 Scheduler will continue with current configuration")
                     
                     # Load plateau scheduler state if available
                     if 'plateau_scheduler' in checkpoint:
-                        plateau_scheduler.load_state_dict(checkpoint['plateau_scheduler'])
-                        logger.info("✅ Plateau scheduler state restored")
+                        try:
+                            plateau_scheduler.load_state_dict(checkpoint['plateau_scheduler'])
+                            logger.info("✅ Plateau scheduler state restored")
+                        except Exception as e:
+                            logger.warning(f"⚠️  Failed to load plateau scheduler state: {e}")
+                            # Initialize plateau scheduler with current best accuracy to avoid immediate LR reduction
+                            plateau_scheduler.best = best_acc1
+                            plateau_scheduler.num_bad_epochs = 0
+                            logger.info(f"🔧 Plateau scheduler baseline set to {best_acc1:.2f}%")
+                    else:
+                        logger.info("ℹ️  No plateau scheduler in checkpoint - initializing fresh")
+                        # Initialize plateau scheduler with current best accuracy to avoid immediate LR reduction
+                        plateau_scheduler.best = best_acc1
+                        plateau_scheduler.num_bad_epochs = 0
+                        logger.info(f"🔧 Plateau scheduler baseline set to {best_acc1:.2f}%")
                     
                     # Load SWA scheduler state if in SWA phase
                     if 'swa_scheduler' in checkpoint and start_epoch >= (args.epochs - args.swa_epochs):
-                        swa_scheduler.load_state_dict(checkpoint['swa_scheduler'])
-                        logger.info("✅ SWA scheduler state restored")
+                        try:
+                            swa_scheduler.load_state_dict(checkpoint['swa_scheduler'])
+                            logger.info("✅ SWA scheduler state restored")
+                        except Exception as e:
+                            logger.warning(f"⚠️  Failed to load SWA scheduler state: {e}")
+                            logger.info("🔄 SWA scheduler will be initialized fresh")
                     
                     # Load scaler state
                     if 'scaler' in checkpoint and scaler:
-                        scaler.load_state_dict(checkpoint['scaler'])
-                        logger.info("✅ Mixed precision scaler restored")
+                        try:
+                            scaler.load_state_dict(checkpoint['scaler'])
+                            logger.info("✅ Mixed precision scaler restored")
+                        except Exception as e:
+                            logger.warning(f"⚠️  Failed to load scaler state: {e}")
+                            logger.info("🔄 Mixed precision scaler will be initialized fresh")
                     
                     logger.info(f"✅ Resumed from epoch {start_epoch}, best accuracy: {best_acc1:.2f}%")
                     logger.info(f"📊 Resuming in {'Main Model' if start_epoch < (args.epochs - args.swa_epochs) else 'SWA'} phase")
@@ -415,6 +475,21 @@ def main():
     
     for epoch in range(start_epoch, args.epochs):
         
+        # Dynamic mixup parameter adjustment for smooth transition
+        # DISABLED: Model was already trained with conservative mixup (0.1, 0.5)
+        # No need for further mixup transitions - focus on gradient clipping only
+        if False and hasattr(train_loader.collate_fn, 'mixup_alpha'):
+            current_alpha, current_prob = get_dynamic_mixup_params(epoch)
+            old_alpha = train_loader.collate_fn.mixup_alpha
+            old_prob = train_loader.collate_fn.prob
+            
+            train_loader.collate_fn.mixup_alpha = current_alpha
+            train_loader.collate_fn.prob = current_prob
+            
+            # Log parameter changes
+            if abs(old_alpha - current_alpha) > 0.001 or abs(old_prob - current_prob) > 0.001:
+                logger.info(f"🔧 Mixup params updated: alpha {old_alpha:.3f}→{current_alpha:.3f}, prob {old_prob:.3f}→{current_prob:.3f}")
+        
         # Learning rate scheduling
         if epoch >= (args.epochs - args.swa_epochs):
             swa_scheduler.step()
@@ -424,6 +499,12 @@ def main():
             current_lr = scheduler.get_last_lr()[0]
         
         logger.info(f'\nEpoch {epoch+1:3d}/{args.epochs} - LR: {current_lr:.6f}')
+        
+        # Log gradient clipping transitions (faster schedule)
+        if epoch == 68:
+            logger.info(f"🔧 Gradient clipping transition: 1.0 → 1.5 (starting epoch {epoch+1})")
+        elif epoch == 70:
+            logger.info(f"🔧 Gradient clipping transition: 1.5 → 2.0 (starting epoch {epoch+1})")
         
         # Training
         # Track parameter changes for debugging
