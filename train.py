@@ -18,7 +18,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torch.cuda.amp import GradScaler, autocast
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 from torch.optim.swa_utils import AveragedModel, SWALR, update_bn
 from tqdm import tqdm
 
@@ -44,8 +44,8 @@ def parse_args():
                        help='Total training epochs (default: 120)')
     parser.add_argument('--batch-size', type=int, default=256,
                        help='Batch size (default: 256)')
-    parser.add_argument('--lr', type=float, default=0.1,
-                       help='Initial learning rate (default: 0.1)')
+    parser.add_argument('--lr', type=float, default=0.05,
+                       help='Initial learning rate (default: 0.05)')
     parser.add_argument('--momentum', type=float, default=0.9,
                        help='SGD momentum (default: 0.9)')
     parser.add_argument('--weight-decay', type=float, default=1e-4,
@@ -64,10 +64,18 @@ def parse_args():
                        help='SWA learning rate (default: 0.01)')
     
     # Augmentation
-    parser.add_argument('--mixup-alpha', type=float, default=0.2,
-                       help='Mixup alpha (default: 0.2)')
-    parser.add_argument('--mixup-prob', type=float, default=0.8,
-                       help='Mixup probability (default: 0.8)')
+    parser.add_argument('--mixup-alpha', type=float, default=0.1,
+                       help='Mixup alpha (default: 0.1)')
+    parser.add_argument('--mixup-prob', type=float, default=0.5,
+                       help='Mixup probability (default: 0.5)')
+    
+    # Plateau handling
+    parser.add_argument('--plateau-patience', type=int, default=5,
+                       help='Epochs to wait before reducing LR on plateau (default: 5)')
+    parser.add_argument('--plateau-factor', type=float, default=0.5,
+                       help='Factor to reduce LR by on plateau (default: 0.5)')
+    parser.add_argument('--min-lr', type=float, default=1e-6,
+                       help='Minimum learning rate (default: 1e-6)')
     
     # System
     parser.add_argument('--workers', type=int, default=8,
@@ -91,7 +99,7 @@ def parse_args():
 
 
 def build_optimizer_scheduler(model, args):
-    """Build optimizer and cosine scheduler with warmup"""
+    """Build optimizer with both cosine scheduler and plateau scheduler"""
     optimizer = optim.SGD(
         model.parameters(),
         lr=args.lr,
@@ -99,13 +107,24 @@ def build_optimizer_scheduler(model, args):
         weight_decay=args.weight_decay
     )
     
+    # Primary scheduler: Cosine annealing
     scheduler = CosineAnnealingLR(
         optimizer, 
         T_max=args.epochs,
-        eta_min=0.001
+        eta_min=args.min_lr
     )
     
-    return optimizer, scheduler
+    # Secondary scheduler: Plateau detection
+    plateau_scheduler = ReduceLROnPlateau(
+        optimizer,
+        mode='max',  # We want to maximize accuracy
+        factor=args.plateau_factor,
+        patience=args.plateau_patience,
+        verbose=True,
+        min_lr=args.min_lr
+    )
+    
+    return optimizer, scheduler, plateau_scheduler
 
 
 def train_epoch(model, train_loader, criterion, optimizer, epoch, args, 
@@ -161,15 +180,15 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
         # Backward pass
         if args.amp and scaler:
             scaler.scale(loss).backward()
-            # Gradient clipping for stability
+            # Relaxed gradient clipping for better convergence
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
             scaler.step(optimizer)
             scaler.update()
         else:
             loss.backward()
-            # Gradient clipping for stability
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # Relaxed gradient clipping for better convergence
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
             optimizer.step()
         
         # Update models
@@ -305,7 +324,7 @@ def main():
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     
     # Optimizer and scheduler
-    optimizer, scheduler = build_optimizer_scheduler(model, args)
+    optimizer, scheduler, plateau_scheduler = build_optimizer_scheduler(model, args)
     
     # EMA model
     ema_model = EMAModel(model, decay=args.ema_decay)
@@ -359,6 +378,11 @@ def main():
                     if 'scheduler' in checkpoint:
                         scheduler.load_state_dict(checkpoint['scheduler'])
                         logger.info("✅ Scheduler state restored")
+                    
+                    # Load plateau scheduler state if available
+                    if 'plateau_scheduler' in checkpoint:
+                        plateau_scheduler.load_state_dict(checkpoint['plateau_scheduler'])
+                        logger.info("✅ Plateau scheduler state restored")
                     
                     # Load SWA scheduler state if in SWA phase
                     if 'swa_scheduler' in checkpoint and start_epoch >= (args.epochs - args.swa_epochs):
@@ -448,12 +472,33 @@ def main():
         logger.info(f'Val:   {val_loss:.3f} loss, {val_acc1:.2f}% acc ({model_type})')
         logger.info(f'Best:  {max(best_acc1, val_acc1):.2f}% | Elapsed: {format_time(elapsed)}')
         
+        # Debug training/validation gap
+        acc_gap = val_acc1 - train_acc1
+        if acc_gap > 15.0:
+            logger.warning(f"⚠️  Large train/val gap: {acc_gap:.2f}% - Consider reducing augmentation")
+        elif acc_gap > 10.0:
+            logger.info(f"📊 Train/val gap: {acc_gap:.2f}% - Normal for strong augmentation")
+        
+        # Plateau detection (only for non-SWA epochs)
+        if epoch < (args.epochs - args.swa_epochs):
+            old_lr = optimizer.param_groups[0]['lr']
+            plateau_scheduler.step(val_acc1)
+            new_lr = optimizer.param_groups[0]['lr']
+            if new_lr < old_lr:
+                logger.info(f"🔻 Plateau detected! LR reduced: {old_lr:.6f} → {new_lr:.6f}")
+                # Reset scheduler if LR was reduced
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = new_lr
+                # Also update the cosine scheduler's last_epoch to sync
+                scheduler.last_epoch = epoch
+        
         # Prepare checkpoint with all necessary states (for both regular and best saves)
         checkpoint_state = {
             'epoch': epoch,
             'model': model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict(),
+            'plateau_scheduler': plateau_scheduler.state_dict(),
             'best_acc1': best_acc1,
             'model_type': model_type,
             'train_loss': train_loss,
