@@ -50,6 +50,21 @@ def get_dynamic_mixup_params(epoch, current_alpha=0.1, current_prob=0.5, target_
         return target_alpha, target_prob
 
 
+def get_gradient_clip_norm(epoch, initial_transition_epoch=67):
+    """
+    Get gradient clipping norm based on epoch.
+    Stable transition from 1.0 to 2.0 over epochs.
+    """
+    if epoch < initial_transition_epoch:
+        return 1.0  # Conservative clipping initially
+    elif epoch < initial_transition_epoch + 3:
+        # Smooth transition over 3 epochs (67->68->69->70)
+        progress = (epoch - initial_transition_epoch) / 3.0
+        return 1.0 + progress * 1.0  # 1.0 -> 2.0
+    else:
+        return 2.0  # Relaxed clipping from epoch 70+
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='ResNet50 ImageNet Training')
     
@@ -138,7 +153,6 @@ def build_optimizer_scheduler(model, args):
         mode='max',  # We want to maximize accuracy
         factor=args.plateau_factor,
         patience=args.plateau_patience,
-        verbose=True,
         min_lr=args.min_lr
     )
     
@@ -146,7 +160,7 @@ def build_optimizer_scheduler(model, args):
 
 
 def train_epoch(model, train_loader, criterion, optimizer, epoch, args, 
-                scaler=None, ema_model=None, swa_model=None):
+                scaler=None, ema_model=None, swa_model=None, logger=None, current_grad_clip_norm=None):
     """Single training epoch"""
     model.train()
     losses = AverageMeter('Loss')
@@ -157,9 +171,16 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
     use_swa = epoch >= (args.epochs - args.swa_epochs)
     strategy = "SWA" if use_swa else "Main"
     
-    pbar = tqdm(train_loader, desc=f'Epoch {epoch+1:3d}/{args.epochs} ({strategy})')
+    # Use provided gradient clipping norm or calculate from epoch
+    if current_grad_clip_norm is None:
+        current_grad_clip_norm = get_gradient_clip_norm(epoch)
     
-    for batch_data in pbar:
+    # Track gradient norms for monitoring
+    grad_norms = []
+    
+    pbar = tqdm(train_loader, desc=f'Epoch {epoch+1:3d}/{args.epochs} ({strategy}, clip={current_grad_clip_norm:.1f})')
+    
+    for batch_idx, batch_data in enumerate(pbar):
         # Handle Mixup/CutMix data format
         if len(batch_data) == 4:  # Mixup/CutMix applied
             images, targets_a, targets_b, lam = batch_data
@@ -198,28 +219,17 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
         # Backward pass
         if args.amp and scaler:
             scaler.scale(loss).backward()
-            # Faster gradient clipping transition for stability
             scaler.unscale_(optimizer)
-            if epoch < 68:
-                max_norm = 1.0  # Keep original for 1 epoch
-            elif epoch < 70:
-                max_norm = 1.5  # Gradual increase for 2 epochs
-            else:
-                max_norm = 2.0  # Full relaxation from epoch 70
-                    
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+            # Apply current gradient clipping norm
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=current_grad_clip_norm)
+            grad_norms.append(grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm)
             scaler.step(optimizer)
             scaler.update()
         else:
             loss.backward()
-            # Faster gradient clipping transition for stability
-            if epoch < 68:
-                max_norm = 1.0  # Keep original for 1 epoch
-            elif epoch < 70:
-                max_norm = 1.5  # Gradual increase for 2 epochs
-            else:
-                max_norm = 2.0  # Full relaxation from epoch 70
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+            # Apply current gradient clipping norm
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=current_grad_clip_norm)
+            grad_norms.append(grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm)
             optimizer.step()
         
         # Update models
@@ -234,10 +244,17 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
         
         pbar.set_postfix({
             'Loss': f'{losses.avg:.3f}',
-            'Acc': f'{top1.avg:.1f}%'
+            'Acc': f'{top1.avg:.1f}%',
+            'GradNorm': f'{grad_norm.item() if hasattr(grad_norm, "item") else grad_norm:.3f}'
         })
     
-    return losses.avg, top1.avg
+    # Log gradient statistics
+    if grad_norms and logger:
+        avg_grad_norm = sum(grad_norms) / len(grad_norms)
+        max_grad_norm = max(grad_norms)
+        logger.info(f"📊 Gradient norms - Avg: {avg_grad_norm:.3f}, Max: {max_grad_norm:.3f}, Clip: {current_grad_clip_norm:.1f}")
+    
+    return losses.avg, top1.avg, current_grad_clip_norm
 
 
 def validate(model, val_loader, criterion, args, logger=None):
@@ -370,6 +387,7 @@ def main():
     # Resume from checkpoint if specified
     start_epoch = 0
     best_acc1 = 0.0
+    current_grad_clip_norm = None  # Will be set from checkpoint or calculated
     
     if args.resume:
         if os.path.isfile(args.resume):
@@ -391,6 +409,15 @@ def main():
                     start_epoch = checkpoint['epoch'] + 1
                     best_acc1 = checkpoint['best_acc1']
                     optimizer.load_state_dict(checkpoint['optimizer'])
+                    
+                    # Load gradient clipping state if available
+                    if 'grad_clip_norm' in checkpoint:
+                        current_grad_clip_norm = checkpoint['grad_clip_norm']
+                        logger.info(f"✅ Gradient clipping norm restored: {current_grad_clip_norm:.1f}")
+                    else:
+                        # Calculate from current epoch to maintain consistency
+                        current_grad_clip_norm = get_gradient_clip_norm(start_epoch)
+                        logger.info(f"🔧 Gradient clipping norm calculated: {current_grad_clip_norm:.1f} (epoch {start_epoch})")
                     
                     # Validate resumed values
                     if torch.isnan(torch.tensor(best_acc1)) or best_acc1 < 0:
@@ -462,11 +489,17 @@ def main():
                 logger.info("🚀 Starting fresh training instead")
                 start_epoch = 0
                 best_acc1 = 0.0
+                current_grad_clip_norm = get_gradient_clip_norm(0)
+                logger.info(f"🔧 Initial gradient clipping norm: {current_grad_clip_norm:.1f}")
         else:
             logger.warning(f"❌ No checkpoint found at '{args.resume}'")
             logger.info("🚀 Starting fresh training instead")
+            current_grad_clip_norm = get_gradient_clip_norm(0)
+            logger.info(f"🔧 Initial gradient clipping norm: {current_grad_clip_norm:.1f}")
     else:
         logger.info("🚀 Starting fresh training")
+        current_grad_clip_norm = get_gradient_clip_norm(0)
+        logger.info(f"🔧 Initial gradient clipping norm: {current_grad_clip_norm:.1f}")
     
     # Training loop
     start_time = time.time()
@@ -500,24 +533,28 @@ def main():
         
         logger.info(f'\nEpoch {epoch+1:3d}/{args.epochs} - LR: {current_lr:.6f}')
         
-        # Log gradient clipping transitions (faster schedule)
-        if epoch == 68:
-            logger.info(f"🔧 Gradient clipping transition: 1.0 → 1.5 (starting epoch {epoch+1})")
-        elif epoch == 70:
-            logger.info(f"🔧 Gradient clipping transition: 1.5 → 2.0 (starting epoch {epoch+1})")
+        # Calculate current gradient clipping norm and log transitions
+        new_grad_clip_norm = get_gradient_clip_norm(epoch)
+        if current_grad_clip_norm is None:
+            current_grad_clip_norm = new_grad_clip_norm
+            logger.info(f"🔧 Gradient clipping norm initialized: {current_grad_clip_norm:.1f}")
+        elif abs(new_grad_clip_norm - current_grad_clip_norm) > 0.01:
+            logger.info(f"🔧 Gradient clipping transition: {current_grad_clip_norm:.1f} → {new_grad_clip_norm:.1f} (epoch {epoch+1})")
+            current_grad_clip_norm = new_grad_clip_norm
         
         # Training
         # Track parameter changes for debugging
         pre_train_param = None
-        if args.debug and epoch == 0:
+        if args.debug and epoch == start_epoch:
             pre_train_param = next(model.parameters()).clone().detach()
             
-        train_loss, train_acc1 = train_epoch(
+        train_loss, train_acc1, current_grad_clip_norm = train_epoch(
             model, train_loader, criterion, optimizer, epoch, args,
-            scaler=scaler, ema_model=ema_model, swa_model=swa_model
+            scaler=scaler, ema_model=ema_model, swa_model=swa_model, 
+            logger=logger, current_grad_clip_norm=current_grad_clip_norm
         )
         
-        if args.debug and epoch == 0 and pre_train_param is not None:
+        if args.debug and epoch == start_epoch and pre_train_param is not None:
             post_train_param = next(model.parameters()).clone().detach()
             param_change = torch.norm(post_train_param - pre_train_param).item()
             logger.info(f"🔧 Parameter change magnitude: {param_change:.6f}")
@@ -581,6 +618,7 @@ def main():
             'scheduler': scheduler.state_dict(),
             'plateau_scheduler': plateau_scheduler.state_dict(),
             'best_acc1': best_acc1,
+            'grad_clip_norm': current_grad_clip_norm,  # Save current gradient clipping state
             'model_type': model_type,
             'train_loss': train_loss,
             'val_loss': val_loss,
