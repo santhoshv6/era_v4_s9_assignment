@@ -60,10 +60,10 @@ def parse_args():
                         help='SWA learning rate (default: 0.01)')
 
     # Augmentation
-    parser.add_argument('--mixup-alpha', type=float, default=0.1,
-                        help='Mixup alpha (default: 0.1)')
-    parser.add_argument('--mixup-prob', type=float, default=0.5,
-                        help='Mixup probability (default: 0.5)')
+    parser.add_argument('--mixup-alpha', type=float, default=0.2,
+                        help='Mixup alpha (default: 0.2)')
+    parser.add_argument('--mixup-prob', type=float, default=0.8,
+                        help='Mixup probability (default: 0.8)')
 
     # System
     parser.add_argument('--workers', type=int, default=8,
@@ -155,6 +155,13 @@ def train_epoch(model, train_loader, criterion, optimizer, epoch, args,
             actual_classes = targets[:5]
             logger.info(f"Sample predictions: {pred_classes.cpu().tolist()}")
             logger.info(f"Sample targets: {actual_classes.cpu().tolist()}")
+
+        # Safety check for NaN/Inf loss
+        if torch.isnan(loss) or torch.isinf(loss):
+            logger.error(f"⚠️ NaN/Inf loss detected at epoch {epoch+1}, batch {i}") # type: ignore
+            logger.error("Skipping this batch to prevent divergence") # type: ignore
+            optimizer.zero_grad()
+            continue
 
         # Backward pass with gradient clipping
         if args.amp and scaler:
@@ -340,13 +347,35 @@ def main():
                         except Exception as e:
                             logger.warning(f"⚠️ Failed to load SWA model state: {e}")
 
-                    # Load scheduler state
+                    # Load scheduler state - SIMPLIFIED APPROACH
                     if 'scheduler' in checkpoint:
                         try:
+                            # Always load the scheduler state first
                             scheduler.load_state_dict(checkpoint['scheduler'])
-                            logger.info("✅ Scheduler state restored")
+
+                            # Check if total epochs changed
+                            checkpoint_epochs = checkpoint.get('total_epochs', 90)
+                            if checkpoint_epochs != args.epochs:
+                                # Adjust T_max for new total epochs
+                                scheduler.T_max = args.epochs
+                                logger.info(f"✅ Scheduler loaded and T_max adjusted: {checkpoint_epochs} → {args.epochs}")
+
+                                # CRITICAL: Reset optimizer momentum buffers to prevent divergence
+                                logger.info("🔄 Resetting optimizer momentum buffers for stability")
+                                momentum_reset_count = 0
+                                for param in model.parameters():
+                                    if param in optimizer.state:
+                                        param_state = optimizer.state[param]
+                                        if 'momentum_buffer' in param_state:
+                                            param_state['momentum_buffer'].zero_()
+                                            momentum_reset_count += 1
+                                logger.info(f"✅ Reset {momentum_reset_count} momentum buffers")
+                            else:
+                                logger.info("✅ Scheduler state restored (epochs unchanged)")
                         except Exception as e:
                             logger.warning(f"⚠️ Failed to load scheduler state: {e}")
+                    else:
+                        logger.warning("⚠️ No scheduler state in checkpoint")
 
                     # Load SWA scheduler if in SWA phase
                     if 'swa_scheduler' in checkpoint and start_epoch >= (args.epochs - args.swa_epochs):
@@ -358,6 +387,9 @@ def main():
 
                     # IMPORTANT: Do NOT load scaler state - reinitialize fresh
                     logger.info("🔄 Mixed precision scaler initialized fresh (not loaded from checkpoint)")
+
+                    # Fallbacking to original augmentation parameters values
+                    logger.info("🔄 Augmentation parameters fallback to original values of 0.2 and 0.8")
 
                     logger.info(f"✅ Resumed from epoch {start_epoch}, best accuracy: {best_acc1:.2f}%")
                     logger.info(f"📊 Resuming in {'Main Model' if start_epoch < (args.epochs - args.swa_epochs) else 'SWA'} phase")
@@ -383,13 +415,12 @@ def main():
         pre_train_param = next(model.parameters()).clone().detach()
 
     for epoch in range(start_epoch, args.epochs):
-        # Learning rate scheduling
+        # Get current LR before training
         if epoch >= (args.epochs - args.swa_epochs):
-            swa_scheduler.step()
             current_lr = swa_scheduler.get_last_lr()[0]
         else:
-            scheduler.step()
             current_lr = scheduler.get_last_lr()[0]
+
 
         logger.info(f'\nEpoch {epoch+1:3d}/{args.epochs} - LR: {current_lr:.6f}')
 
@@ -447,6 +478,7 @@ def main():
             'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict(),
             'best_acc1': best_acc1,
+            'total_epochs': args.epochs,  
             'model_type': model_type,
             'train_loss': train_loss,
             'val_loss': val_loss,
@@ -474,6 +506,12 @@ def main():
             checkpoint_state['best_acc1'] = best_acc1
             save_checkpoint(checkpoint_state, True, str(output_dir), 'best_model.pth')
             logger.info(f'💾 New best model saved: {val_acc1:.2f}%')
+
+        # Step scheduler AFTER epoch completes
+        if epoch >= (args.epochs - args.swa_epochs):
+            swa_scheduler.step()
+        else:
+            scheduler.step()
 
     # Final results
     total_time = time.time() - start_time
