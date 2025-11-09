@@ -444,19 +444,28 @@ def main():
             val_loss, val_acc1 = validate(model, val_loader, criterion, args, logger=logger)
             eval_model = model
             model_type = "Main"
-        elif epoch >= (args.epochs - args.swa_epochs):
-            # Use SWA model
-            if epoch == (args.epochs - args.swa_epochs):
-                logger.info("Updating SWA batch norm statistics...")
-                update_bn(train_loader, swa_model, device=torch.device('cuda'))
-            val_loss, val_acc1 = validate(swa_model, val_loader, criterion, args, logger=logger)
-            eval_model = swa_model
-            model_type = "SWA"
-        else:
-            # Use base model
+        
+        elif epoch < args.epochs - 1:
+            # SWA accumulation (epochs 91-99) - validate main model
             val_loss, val_acc1 = validate(model, val_loader, criterion, args, logger=logger)
             eval_model = model
-            model_type = "Base"
+            model_type = "Main (SWA accumulating)"
+            logger.info("📊 SWA model weights being averaged - final evaluation at epoch 100")
+    
+        else:
+            # Final epoch (100) - update BN once and validate SWA
+            logger.info("=" * 80)
+            logger.info("🎯 Final SWA Batch Normalization Update")
+            logger.info("=" * 80)
+            update_bn(train_loader, swa_model, device=torch.device('cuda'))
+            
+            val_loss, val_acc1 = validate(swa_model, val_loader, criterion, args, logger=logger)
+            eval_model = swa_model
+            model_type = "SWA (final)"
+            
+            logger.info("=" * 80)
+            logger.info(f"🎉 Final SWA Model Accuracy: {val_acc1:.2f}%")
+            logger.info("=" * 80)
 
         # Logging
         elapsed = time.time() - start_time
