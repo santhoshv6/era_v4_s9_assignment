@@ -303,7 +303,9 @@ def main():
 
     # SWA model
     swa_model = AveragedModel(model)
-    swa_scheduler = SWALR(optimizer, swa_lr=args.swa_lr)
+    #swa_scheduler = SWALR(optimizer, swa_lr=args.swa_lr)
+    swa_scheduler = SWALR(optimizer, swa_lr=args.swa_lr, anneal_epochs=1, anneal_strategy='linear')
+
 
     # Mixed precision - ALWAYS INITIALIZE FRESH (don't load from checkpoint)
     scaler = GradScaler() if args.amp else None
