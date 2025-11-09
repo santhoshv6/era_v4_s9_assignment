@@ -2,7 +2,7 @@
 
 ---
 
-## 🏆 75.15% Top-1 Accuracy Achieved
+## 🏆 75.74% Top-1 Accuracy Achieved
 
 ---
 
@@ -10,12 +10,12 @@
 
 | Metric                   | Target   | Achieved   | Status                |
 |-------------------------|----------|------------|-----------------------|
-| Best Validation Accuracy| 78%      | 75.15%     | 🎯 96% of Target      |
+| Best Validation Accuracy| 78%      | 75.74%     | 🎯 97% of Target      |
 | Total Parameters        | ~25M     | 25.56M     | ✅ OPTIMAL            |
-| Training Epochs         | 100      | 91 (best)  | ✅ EFFICIENT          |
+| Training Epochs         | 100      | 91         | ✅ EFFICIENT          |
 | Training Time           | ~96 hrs  | ~115 hrs   | ✅ COMPLETED          |
 | Device                  | AWS EC2  | g5.2xlarge | ✅ OPTIMAL            |
-| Target Achievement Epoch| 100      | 91         | 🎯 STRONG PERFORMANCE |
+| Target Achievement Epoch| 100      | 91 (75.74%)| 🎯 STRONG PERFORMANCE |
 
 ---
 
@@ -43,10 +43,10 @@
 
 - **Rapid Initial Learning:** 13% → 69% in first 89 epochs
 - **Steady Convergence:** Minimal overfitting
-- **Peak Performance:** 75.15% at epoch 91
+- **Peak Performance:** 75.74% at epoch 91
 - **Loss Reduction:** 6.0 → 1.93
 - **Train/Val Gap:** 16-18% (healthy, due to strong augmentation)
-- **Best Result:** 75.15% (epoch 91)
+- **Best Result:** 75.74% (epoch 91)
 
 ---
 
@@ -111,7 +111,7 @@
 | Mid-Training Peak | 66    | 70.02%  | ~44 hrs       | Main Only        | Pre-challenge point |
 | Aug. Restored     | 75    | 72.81%  | ~50 hrs       | Main Only        | After revert        |
 | End Main Training | 90    | 73.32%  | ~60 hrs       | Main Only        | Pre-SWA             |
-| **BEST RESULT**   | 91    | 75.15%  | ~61 hrs       | SWA (update_bn)  | 🎯 SUBMITTED        |
+| **BEST RESULT**   | 91    | 75.74%  | ~61 hrs       | SWA (update_bn)  | 🎯 SUBMITTED        |
 | SWA Divergence    | 92-96 | 70.74%  | ~64 hrs       | SWA              | Stopped training    |
 
 ---
@@ -223,7 +223,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 ```
 
-### Download Best Model (Epoch 91 - 75.15%)
+### Download Best Model (Epoch 91 - 75.74%)
 ```python
 import torch
 from src.model import ResNet50
@@ -256,7 +256,7 @@ python train.py \
 
 ## 🎖️ Key Achievements
 
-- 75.15% top-1 accuracy (96% of target)
+- 75.74% top-1 accuracy (97% of target)
 - Efficient debugging: Multiple critical issues resolved
 - Stable training: 90 epochs without major divergence
 - Best practices documented
@@ -290,7 +290,7 @@ python train.py \
 |--------------------------|----------------------------------------|------------------|
 | ImageNet Dataset         | Full: 1,281,167 train, 50K val         | ✅ DONE          |
 | ResNet50 Architecture    | 25.56M parameters                      | ✅ DONE          |
-| 78% Target               | 75.15% achieved (96%)                  | 🎯 96% ACHIEVED  |
+| 78% Target               | 75.74% achieved (97%)                  | 🎯 97% ACHIEVED  |
 | Cloud Training           | AWS g5.2xlarge (A10G)                  | ✅ DONE          |
 | Advanced Augmentation    | Mixup + CutMix + RandAugment           | ✅ DONE          |
 | GPU Optimization         | AMP, batch 400                         | ✅ DONE          |
@@ -316,7 +316,7 @@ python train.py \
 | Workers        | 8                                       |
 | Augmentation   | Mixup(0.2) + CutMix(1.0) + RandAugment(9)|
 | Training Time  | ~115 hours                              |
-| Best Checkpoint| Epoch 91 (75.15%)                       |
+| Best Checkpoint| Epoch 91 (75.74%)                       |
 
 ---
 
@@ -391,7 +391,7 @@ python train.py \
 
 🏆 **Project Achievement**
 
-75.15% Top-1 Accuracy on Full ImageNet
+75.74% Top-1 Accuracy on Full ImageNet
 
 Comprehensive debugging journey documented
 
